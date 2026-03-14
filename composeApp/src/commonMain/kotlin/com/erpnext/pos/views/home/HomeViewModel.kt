@@ -146,6 +146,9 @@ class HomeViewModel(
     viewModelScope.launch {
       openingEntryId.collectLatest { openingId ->
         val normalized = openingId?.trim()?.takeIf { it.isNotBlank() }
+        if (normalized == null && contextManager.cashboxState.value && lastMetricsOpeningEntryId != null) {
+          return@collectLatest
+        }
         if (normalized == lastMetricsOpeningEntryId) return@collectLatest
         lastMetricsOpeningEntryId = normalized
         refreshMetrics()
@@ -270,6 +273,9 @@ class HomeViewModel(
   private suspend fun loadMetricsForActiveShift() {
     val openingId = resolveMetricsOpeningEntryId()
     val previous = _homeMetrics.value
+    if (openingId.isNullOrBlank() && contextManager.cashboxState.value && previous != HomeMetrics()) {
+      return
+    }
     val refreshed =
         loadHomeMetricsUseCase(
             HomeMetricInput(
@@ -288,9 +294,13 @@ class HomeViewModel(
 
     val fromFlow = openingEntryId.value?.trim()?.takeIf { it.isNotBlank() }
     if (!fromFlow.isNullOrBlank()) return fromFlow
-    return contextManager.getActiveCashboxWithDetails()?.cashbox?.openingEntryId?.trim()?.takeIf {
-      it.isNotBlank()
-    }
+    val fromActiveCashbox =
+        contextManager.getActiveCashboxWithDetails()?.cashbox?.openingEntryId?.trim()?.takeIf {
+          it.isNotBlank()
+        }
+    if (!fromActiveCashbox.isNullOrBlank()) return fromActiveCashbox
+
+    return bootstrapContextPreferences.load().posOpeningEntry?.trim()?.takeIf { it.isNotBlank() }
   }
 
   private fun observeLiveShiftMetrics():

@@ -17,9 +17,12 @@ import com.erpnext.pos.domain.printing.usecase.PrintReceiptUseCase
 import com.erpnext.pos.domain.repositories.printing.IPrinterProfileRepository
 import com.erpnext.pos.domain.utils.UUIDGenerator
 import com.erpnext.pos.localSource.preferences.GeneralPreferences
+import com.erpnext.pos.localSource.preferences.LanguagePreferences
+import com.erpnext.pos.localization.AppLanguage
 import com.erpnext.pos.navigation.NavRoute
 import com.erpnext.pos.navigation.NavigationManager
 import com.erpnext.pos.printing.templates.buildPendingInvoicePaymentReceipt
+import com.erpnext.pos.printing.templates.ReceiptTemplateMetadata
 import com.erpnext.pos.remoteSource.dto.InternalTransferCreateDto
 import com.erpnext.pos.remoteSource.dto.PaymentEntryReferenceCreateDto
 import com.erpnext.pos.remoteSource.dto.PaymentOutCreateDto
@@ -55,6 +58,7 @@ class PaymentEntryViewModel(
     private val createInternalTransferUseCase: CreateInternalTransferUseCase,
     private val networkMonitor: NetworkMonitor,
     private val generalPreferences: GeneralPreferences,
+    private val languagePreferences: LanguagePreferences,
     private val printReceiptUseCase: PrintReceiptUseCase,
     private val printerProfileRepository: IPrinterProfileRepository,
 ) : BaseViewModel() {
@@ -67,12 +71,20 @@ class PaymentEntryViewModel(
   private var accountToMode: Map<String, String> = emptyMap()
   private var modeToAccount: Map<String, String> = emptyMap()
   private var modeToCurrency: Map<String, String> = emptyMap()
+  private var currentLanguage: AppLanguage = AppLanguage.Spanish
 
   init {
     resetTypeDrafts()
     _state.update { state -> state.copy(referenceDate = draftReferenceDateFor(state.entryType)) }
     observeOnlinePolicy()
+    observeLanguage()
     loadAccountingDefaults()
+  }
+
+  private fun observeLanguage() {
+    viewModelScope.launch {
+      languagePreferences.language.collect { language -> currentLanguage = language }
+    }
   }
 
   private fun defaultReferenceDate(): String = DateTimeProvider.todayDate()
@@ -534,6 +546,8 @@ class PaymentEntryViewModel(
                         modeOfPayment = sourceMode,
                         referenceNo = current.referenceNo,
                         notes = current.notes,
+                        customerName = current.party.takeIf { it.isNotBlank() },
+                        pendingAfterPayment = null,
                     )
               } else {
                 cashBoxManager.registerCashMovement(
@@ -793,6 +807,8 @@ class PaymentEntryViewModel(
       modeOfPayment: String,
       referenceNo: String?,
       notes: String?,
+      customerName: String? = null,
+      pendingAfterPayment: Double? = null,
   ): String {
     val printerEnabled = generalPreferences.printerEnabled.firstOrNull() ?: true
     if (!printerEnabled) return "Impresion deshabilitada en Configuraciones."
@@ -802,6 +818,15 @@ class PaymentEntryViewModel(
       return "No hay impresora predeterminada configurada."
     }
 
+    val context = cashBoxManager.getContext() ?: cashBoxManager.initializeContext()
+    val cashierName =
+        context?.cashier?.fullName?.takeIf { it.isNotBlank() }
+            ?: context?.cashier?.username?.takeIf { it.isNotBlank() }
+            ?: context?.username
+    val profileId = context?.profileName
+    val companyName = context?.company
+    val logoUrl = context?.cashier?.image
+
     val receipt =
         buildPendingInvoicePaymentReceipt(
             invoiceId = invoiceId,
@@ -810,6 +835,16 @@ class PaymentEntryViewModel(
             modeOfPayment = modeOfPayment,
             referenceNo = referenceNo,
             notes = notes,
+            pendingAfterPayment = pendingAfterPayment,
+            language = currentLanguage,
+            metadata =
+                ReceiptTemplateMetadata(
+                    companyName = companyName,
+                    cashierName = cashierName,
+                    customerName = customerName,
+                    posProfileId = profileId,
+                    logoUrl = logoUrl,
+                ),
         )
 
     return runCatching {

@@ -621,6 +621,7 @@ val appModule = module {
             partialReturnUseCase = get(),
             networkMonitor = get(),
             generalPreferences = get(),
+            languagePreferences = get(),
             printReceiptUseCase = get(),
             printerProfileRepository = get(),
             returnPolicyPreferences = get(),
@@ -686,6 +687,7 @@ val appModule = module {
     single { DeliveryNoteViewModel(get()) }
     single {
         PaymentEntryViewModel(
+            get(),
             get(),
             get(),
             get(),

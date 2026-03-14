@@ -78,11 +78,12 @@ fun InventoryList(
       }
 
       else -> {
-        if (isDesktop) {
-          val spacing = if (isWideLayout) 16.dp else 12.dp
+        if (isWideLayout) {
+          val spacing = if (isDesktop) 16.dp else 12.dp
+          val minGridCellSize = if (isDesktop) 360.dp else 220.dp
 
           LazyVerticalGrid(
-              columns = GridCells.Adaptive(minSize = 360.dp),
+              columns = GridCells.Adaptive(minSize = minGridCellSize),
               modifier = modifier.fillMaxSize(),
               contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
               verticalArrangement = Arrangement.spacedBy(spacing),

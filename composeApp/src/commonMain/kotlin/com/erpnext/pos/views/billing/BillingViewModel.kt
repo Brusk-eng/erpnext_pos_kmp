@@ -48,6 +48,7 @@ import com.erpnext.pos.localization.AppLanguage
 import com.erpnext.pos.navigation.NavRoute
 import com.erpnext.pos.navigation.NavigationManager
 import com.erpnext.pos.printing.templates.buildBillingSaleReceipt
+import com.erpnext.pos.printing.templates.ReceiptTemplateMetadata
 import com.erpnext.pos.remoteSource.dto.SalesInvoiceDto
 import com.erpnext.pos.remoteSource.dto.SalesInvoiceItemDto
 import com.erpnext.pos.remoteSource.dto.SalesInvoicePaymentScheduleDto
@@ -1097,6 +1098,14 @@ class BillingViewModel(
                     total = totals.total,
                     paidAmount = resolvedPaymentLines.sumOf { it.baseAmount },
                     balanceDue = (totals.total - resolvedPaymentLines.sumOf { it.baseAmount }).coerceAtLeast(0.0),
+                    companyName = context.company,
+                    cashierName =
+                        context.cashier.fullName
+                            .takeIf { it.isNotBlank() }
+                            ?: context.cashier.username.takeIf { it.isNotBlank() }
+                            ?: context.username,
+                    posProfileId = context.profileName,
+                    logoUrl = context.cashier.image,
                 )
 
             _state.update {
@@ -1934,6 +1943,10 @@ class BillingViewModel(
       total: Double,
       paidAmount: Double,
       balanceDue: Double,
+      companyName: String? = null,
+      cashierName: String? = null,
+      posProfileId: String? = null,
+      logoUrl: String? = null,
   ): String {
     val printerEnabled = generalPreferences.printerEnabled.first()
     if (!printerEnabled) return tr("Impresion deshabilitada.", "Printing is disabled.")
@@ -1961,6 +1974,15 @@ class BillingViewModel(
             total = total,
             paidAmount = paidAmount,
             balanceDue = balanceDue,
+            language = currentLanguage,
+            metadata =
+                ReceiptTemplateMetadata(
+                    companyName = companyName,
+                    cashierName = cashierName,
+                    customerName = customerLabel,
+                    posProfileId = posProfileId,
+                    logoUrl = logoUrl,
+                ),
         )
 
     return runCatching {

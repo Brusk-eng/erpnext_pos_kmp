@@ -21,22 +21,26 @@ class EscPosRenderer(
     require(document is ReceiptDocument) { "EscPosRenderer only supports ReceiptDocument." }
 
     val lines = formatter.format(document, profile.charactersPerLine)
+    val headerLines = document.header.lines.map { it.trim() }.toSet()
+    val footerLines = document.footer.lines.map { it.trim() }.toSet()
+    val totalLabel = document.totalsLabels.total.trim()
     val buffer = mutableListOf<Byte>()
     buffer += EscPosCommands.INIT.toList()
 
     lines.forEach { line ->
-      val isHeaderCentered = document.header.lines.any { header -> line.trim() == header.trim() }
-      if (isHeaderCentered) {
+      val trimmed = line.trim()
+      val isCentered = headerLines.contains(trimmed) || footerLines.contains(trimmed)
+      if (isCentered) {
         buffer += EscPosCommands.ALIGN_CENTER.toList()
       } else {
         buffer += EscPosCommands.ALIGN_LEFT.toList()
       }
-      if (line.trimStart().startsWith("TOTAL")) {
+      if (line.trimStart().startsWith(totalLabel)) {
         buffer += EscPosCommands.BOLD_ON.toList()
       }
       buffer += line.encodeToByteArray().toList()
       buffer += EscPosCommands.LF.toList()
-      if (line.trimStart().startsWith("TOTAL")) {
+      if (line.trimStart().startsWith(totalLabel)) {
         buffer += EscPosCommands.BOLD_OFF.toList()
       }
     }

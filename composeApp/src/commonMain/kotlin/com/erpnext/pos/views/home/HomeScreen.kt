@@ -108,6 +108,7 @@ fun HomeScreen(
   val isCashboxOpen by actions.isCashboxOpen().collectAsState()
   val inventoryAlertMessage by actions.inventoryAlertMessage.collectAsState()
   val windowSizeClass = rememberWindowSizeClass()
+  val isCompactWidthPhone = windowSizeClass.widthSizeClass == WindowWidthSizeClass.Compact
   val isCompactHeightPhone =
       windowSizeClass.heightSizeClass == WindowHeightSizeClass.Compact &&
           (windowSizeClass.widthSizeClass == WindowWidthSizeClass.Compact ||
@@ -302,7 +303,7 @@ fun HomeScreen(
                       if (isCompactHeightPhone) {
                         Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
                       } else {
-                        Modifier.weight(6f).fillMaxSize()
+                        Modifier.weight(1f).fillMaxWidth()
                       },
                   horizontalAlignment = Alignment.CenterHorizontally,
                   verticalArrangement = Arrangement.Center,
@@ -337,7 +338,9 @@ fun HomeScreen(
                       }
                     }
                   },
-                  modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                  modifier =
+                      Modifier.fillMaxWidth()
+                          .padding(bottom = if (isCompactWidthPhone) 88.dp else 16.dp),
                   enabled = syncState !is SyncState.SYNCING,
                   colors =
                       ButtonDefaults.buttonColors(

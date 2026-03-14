@@ -105,6 +105,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
@@ -160,6 +161,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 private const val SUCCESS_POPUP_HIDE_DELAY_MS = 5_000L
+private const val PHONE_SMALLEST_WIDTH_DP = 600f
 
 data class CartItem(
     val itemCode: String,
@@ -627,11 +629,16 @@ private fun BillingLabContent(
     }
   }
   val windowSizeClass = rememberWindowSizeClass()
+  val windowInfo = LocalWindowInfo.current
+  val density = LocalDensity.current
+  val windowWidthDp = with(density) { windowInfo.containerSize.width.toDp().value }
+  val windowHeightDp = with(density) { windowInfo.containerSize.height.toDp().value }
+  val smallestWidthDp = minOf(windowWidthDp, windowHeightDp)
   val isCompactPhone =
       getPlatformName() != "Desktop" &&
+          smallestWidthDp < PHONE_SMALLEST_WIDTH_DP &&
           (windowSizeClass.widthSizeClass == WindowWidthSizeClass.Compact ||
-              (windowSizeClass.widthSizeClass == WindowWidthSizeClass.Medium &&
-                  windowSizeClass.heightSizeClass == WindowHeightSizeClass.Compact))
+              windowSizeClass.heightSizeClass == WindowHeightSizeClass.Compact)
   if (isCompactPhone) {
     BillingLabContentCompact(
         state = state,

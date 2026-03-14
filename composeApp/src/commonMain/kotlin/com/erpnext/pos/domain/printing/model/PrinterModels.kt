@@ -108,11 +108,18 @@ data class ReceiptTotals(
     val total: String,
 )
 
+data class ReceiptTotalsLabels(
+    val subtotal: String = "Subtotal",
+    val tax: String = "Tax",
+    val total: String = "TOTAL",
+)
+
 data class ReceiptDocument(
     override val documentId: String,
     val header: ReceiptSection = ReceiptSection(emptyList(), PrintAlignment.CENTER),
     val bodyLines: List<ReceiptLine>,
     val totals: ReceiptTotals,
+    val totalsLabels: ReceiptTotalsLabels = ReceiptTotalsLabels(),
     val footer: ReceiptSection = ReceiptSection(emptyList(), PrintAlignment.CENTER),
 ) : PrintDocument {
   override val family: PrinterFamily = PrinterFamily.RECEIPT

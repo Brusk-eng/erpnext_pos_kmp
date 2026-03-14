@@ -157,12 +157,14 @@ import com.erpnext.pos.localSource.entities.SalesInvoiceWithItemsAndPayments
 import com.erpnext.pos.localization.LocalAppStrings
 import com.erpnext.pos.utils.CurrencyService
 import com.erpnext.pos.utils.QuickActions.customerQuickActions
+import com.erpnext.pos.utils.WindowWidthSizeClass
 import com.erpnext.pos.utils.formatCurrency
 import com.erpnext.pos.utils.formatDoubleToString
 import com.erpnext.pos.utils.normalizeCurrency
 import com.erpnext.pos.utils.oauth.bd
 import com.erpnext.pos.utils.oauth.moneyScale
 import com.erpnext.pos.utils.oauth.toDouble
+import com.erpnext.pos.utils.rememberWindowSizeClass
 import com.erpnext.pos.utils.resolveCompanyToTargetAmount
 import com.erpnext.pos.utils.resolveInvoiceDisplayAmounts
 import com.erpnext.pos.utils.resolvePaymentCurrencyForMode
@@ -174,8 +176,6 @@ import com.erpnext.pos.utils.view.SnackbarType
 import com.erpnext.pos.views.CashBoxManager
 import com.erpnext.pos.views.billing.AppTextField
 import com.erpnext.pos.views.billing.MoneyTextField
-import kotlin.time.Clock
-import kotlin.time.ExperimentalTime
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.datetime.DatePeriod
@@ -184,6 +184,8 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.minus
 import kotlinx.datetime.toLocalDateTime
 import org.koin.compose.koinInject
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2837,6 +2839,9 @@ private fun CustomerOutstandingInvoicesContent(
   val strings = LocalAppStrings.current
   val cashboxManager: CashBoxManager = koinInject()
   val scrollState = rememberScrollState()
+  val windowSizeClass = rememberWindowSizeClass()
+  val invoiceListMaxHeight =
+      if (windowSizeClass.widthSizeClass == WindowWidthSizeClass.Compact) 220.dp else 360.dp
   var selectedInvoice by remember { mutableStateOf<SalesInvoiceBO?>(null) }
   var amountRaw by remember { mutableStateOf("") }
   var amountValue by remember { mutableStateOf(0.0) }
@@ -2981,7 +2986,7 @@ private fun CustomerOutstandingInvoicesContent(
           Text(text = strings.customer.emptyOsInvoices, style = MaterialTheme.typography.bodyMedium)
         } else {
           LazyColumn(
-              modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp),
+              modifier = Modifier.fillMaxWidth().heightIn(max = invoiceListMaxHeight),
               verticalArrangement = Arrangement.spacedBy(8.dp),
           ) {
             items(

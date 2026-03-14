@@ -68,6 +68,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
@@ -132,6 +134,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+
+private const val PHONE_SMALLEST_WIDTH_DP = 600f
 
 fun shouldShowBottomBar(currentRoute: String): Boolean {
   return currentRoute !in listOf(NavRoute.Login.path, NavRoute.Splash.path)
@@ -332,13 +336,18 @@ fun AppNavigation() {
   }
 
   val isDesktop = getPlatformName() == "Desktop"
-  val isDevelopmentBuild = BuildKonfig.SENTRY_ENV.lowercase() != "production"
   val windowSizeClass = rememberWindowSizeClass()
+  val windowInfo = LocalWindowInfo.current
+  val density = LocalDensity.current
+  val windowWidthDp = with(density) { windowInfo.containerSize.width.toDp().value }
+  val windowHeightDp = with(density) { windowInfo.containerSize.height.toDp().value }
+  val smallestWidthDp = minOf(windowWidthDp, windowHeightDp)
+  val isPhoneDevice = !isDesktop && smallestWidthDp < PHONE_SMALLEST_WIDTH_DP
   val isPhoneCompact =
-      !isDesktop &&
+      isPhoneDevice &&
           (windowSizeClass.widthSizeClass == WindowWidthSizeClass.Compact ||
-              (windowSizeClass.widthSizeClass == WindowWidthSizeClass.Medium &&
-                  windowSizeClass.heightSizeClass == WindowHeightSizeClass.Compact))
+              windowSizeClass.heightSizeClass == WindowHeightSizeClass.Compact)
+  val useRailNavigation = shouldShowBottomBar(currentRoute) && (isDesktop || !isPhoneDevice)
   val previousRoute = navController.previousBackStackEntry?.destination?.route
   val noBackRoutes =
       setOf(
@@ -448,7 +457,7 @@ fun AppNavigation() {
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-              if (!isDesktop && shouldShowBottomBar(currentRoute)) {
+              if (!useRailNavigation && shouldShowBottomBar(currentRoute)) {
                 BottomBarWithCenterFab(
                     snackbarController = snackbarController,
                     navController = navController,
@@ -467,7 +476,7 @@ fun AppNavigation() {
             },
         ) { padding ->
           Row(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (isDesktop && shouldShowBottomBar(currentRoute)) {
+            if (useRailNavigation) {
               DesktopNavigationRail(
                   navController = navController,
                   contextProvider = cashBoxManager,
@@ -529,7 +538,7 @@ fun AppNavigation() {
                             }
                           }
                         }
-                        if (!isPhoneCompact) {
+                        if (!isPhoneCompact && isCashboxOpen) {
                           ShiftOpenChip(
                               isOpen = isCashboxOpen,
                               duration = formatShiftDuration(shiftStart, tick),
@@ -648,7 +657,7 @@ fun AppNavigation() {
                         StatusIconButton(
                             label = dbLabel,
                             onClick = {
-                              if (isCashboxOpen || isDevelopmentBuild) {
+                              if (isCashboxOpen) {
                                 scope.launch { syncManager.fullSync(force = true) }
                               } else {
                                 snackbarController.show(
@@ -887,30 +896,18 @@ fun AppNavigation() {
                                   navController.navigateSingle(NavRoute.Settings.path)
                                 },
                             )
-                            DropdownMenuItem(
-                                text = { Text(strings.navigation.reconciliation) },
-                                leadingIcon = {
-                                  Icon(imageVector = Icons.Outlined.Tune, contentDescription = null)
-                                },
-                                onClick = {
-                                  profileMenuExpanded = false
-                                  navController.navigateSingle(NavRoute.Reconciliation().path)
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(strings.common.retry) },
-                                leadingIcon = {
-                                  Icon(imageVector = Icons.Outlined.Refresh, contentDescription = null)
-                                },
-                                onClick = {
-                                  profileMenuExpanded = false
-                                  when (currentRoute) {
-                                    NavRoute.Inventory.path -> inventoryRefreshController.refresh()
-                                    NavRoute.Home.path -> homeRefreshController.refresh()
-                                    else -> homeRefreshController.refresh()
-                                  }
-                                },
-                            )
+                            if (isCashboxOpen) {
+                              DropdownMenuItem(
+                                  text = { Text(strings.navigation.reconciliation) },
+                                  leadingIcon = {
+                                    Icon(imageVector = Icons.Outlined.Tune, contentDescription = null)
+                                  },
+                                  onClick = {
+                                    profileMenuExpanded = false
+                                    navController.navigateSingle(NavRoute.Reconciliation().path)
+                                  },
+                              )
+                            }
                             DropdownMenuItem(
                                 text = { Text(strings.common.switchInstance) },
                                 leadingIcon = {
@@ -1079,7 +1076,11 @@ fun AppNavigation() {
                       is NavRoute.Home -> {
                         val route = navController.currentBackStackEntry?.destination?.route
                         runCatching {
-                              if (route == NavRoute.Login.path || route == NavRoute.Splash.path) {
+                              if (
+                                  route == null ||
+                                      route == NavRoute.Login.path ||
+                                      route == NavRoute.Splash.path
+                              ) {
                                 AppLogger.info("AppNavigation: Home navigation via auth reset")
                                 navController.navigateFromAuthToHome()
                               } else {

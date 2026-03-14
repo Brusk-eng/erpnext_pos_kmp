@@ -18,9 +18,15 @@ class ReceiptFormatter {
     }
 
     result += "-".repeat(lineWidth)
-    document.totals.subTotal?.let { result += formatLine(ReceiptLine("Subtotal", it), lineWidth) }
-    document.totals.tax?.let { result += formatLine(ReceiptLine("Tax", it), lineWidth) }
-    result += formatLine(ReceiptLine("TOTAL", document.totals.total, emphasis = true), lineWidth)
+    document.totals.subTotal?.let {
+      result += formatLine(ReceiptLine(document.totalsLabels.subtotal, it), lineWidth)
+    }
+    document.totals.tax?.let { result += formatLine(ReceiptLine(document.totalsLabels.tax, it), lineWidth) }
+    result +=
+        formatLine(
+            ReceiptLine(document.totalsLabels.total, document.totals.total, emphasis = true),
+            lineWidth,
+        )
 
     if (document.footer.lines.isNotEmpty()) {
       result += ""
@@ -33,17 +39,28 @@ class ReceiptFormatter {
   private fun wrapLine(line: ReceiptLine, width: Int): List<String> {
     if (line.right.isBlank()) return wrapSingleColumn(line.left, width)
 
-    val right = line.right.trim().take(width)
-    val availableLeft = (width - right.length - 1).coerceAtLeast(1)
-    val leftChunks = wrapSingleColumn(line.left, availableLeft)
-    if (leftChunks.isEmpty()) return listOf(right.padStart(width))
+    val gap = 2
+    val trimmedRight = line.right.trim()
+    val maxRightColumnWidth = (width * 0.45).toInt().coerceAtLeast(10)
+    val rightColumnWidth = trimmedRight.length.coerceIn(8, maxRightColumnWidth)
+    val leftColumnWidth = (width - rightColumnWidth - gap).coerceAtLeast(8)
+    val rightChunks = wrapSingleColumn(trimmedRight, rightColumnWidth)
+    val leftChunks = wrapSingleColumn(line.left, leftColumnWidth)
+    if (leftChunks.isEmpty() && rightChunks.isEmpty()) return listOf("")
+    if (leftChunks.isEmpty()) {
+      return rightChunks.map { chunk -> " ".repeat(width - chunk.length) + chunk }
+    }
 
-    return leftChunks.mapIndexed { index, chunk ->
-      if (index == leftChunks.lastIndex) {
-        val spaces = (width - chunk.length - right.length).coerceAtLeast(1)
-        chunk + " ".repeat(spaces) + right
+    val lineCount = maxOf(leftChunks.size, rightChunks.size)
+    return (0 until lineCount).map { index ->
+      val leftPart = leftChunks.getOrElse(index) { "" }.take(leftColumnWidth)
+      val rightPart = rightChunks.getOrElse(index) { "" }.take(rightColumnWidth)
+      if (rightPart.isBlank()) {
+        leftPart
       } else {
-        chunk
+        val leftPadded = leftPart.padEnd(leftColumnWidth)
+        val rightPadded = rightPart.padStart(rightColumnWidth)
+        leftPadded + " ".repeat(gap) + rightPadded
       }
     }
   }
@@ -86,10 +103,10 @@ class ReceiptFormatter {
   private fun align(text: String, width: Int, alignment: PrintAlignment): String {
     val clean = text.trim().take(width)
     return when (alignment) {
-      PrintAlignment.START -> clean
+      PrintAlignment.START -> clean.padEnd(width)
       PrintAlignment.CENTER -> {
         val leftPad = ((width - clean.length) / 2).coerceAtLeast(0)
-        " ".repeat(leftPad) + clean
+        (" ".repeat(leftPad) + clean).padEnd(width)
       }
       PrintAlignment.END -> clean.padStart(width)
     }

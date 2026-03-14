@@ -43,8 +43,11 @@ import com.erpnext.pos.localSource.dao.PosProfilePaymentMethodDao
 import com.erpnext.pos.localSource.entities.ModeOfPaymentEntity
 import com.erpnext.pos.localSource.entities.SalesInvoiceWithItemsAndPayments
 import com.erpnext.pos.localSource.preferences.GeneralPreferences
+import com.erpnext.pos.localSource.preferences.LanguagePreferences
 import com.erpnext.pos.localSource.preferences.ReturnPolicyPreferences
+import com.erpnext.pos.localization.AppLanguage
 import com.erpnext.pos.printing.templates.buildPendingInvoicePaymentReceipt
+import com.erpnext.pos.printing.templates.ReceiptTemplateMetadata
 import com.erpnext.pos.remoteSource.mapper.toDto
 import com.erpnext.pos.utils.AppLogger
 import com.erpnext.pos.utils.NetworkMonitor
@@ -112,6 +115,7 @@ class CustomerViewModel(
     private val partialReturnUseCase: PartialReturnUseCase,
     private val networkMonitor: NetworkMonitor,
     private val generalPreferences: GeneralPreferences,
+    private val languagePreferences: LanguagePreferences,
     private val printReceiptUseCase: PrintReceiptUseCase,
     private val printerProfileRepository: IPrinterProfileRepository,
     private val returnPolicyPreferences: ReturnPolicyPreferences,
@@ -167,6 +171,7 @@ class CustomerViewModel(
   private val paymentIdCache: MutableMap<String, String> = mutableMapOf()
   private var paymentRateCacheCurrency: String? = null
   private var paymentRateCache: MutableMap<String, Double> = mutableMapOf()
+  private var currentLanguage: AppLanguage = AppLanguage.Spanish
 
   private fun buildPaymentState(
       isSubmitting: Boolean = false,
@@ -228,6 +233,9 @@ class CustomerViewModel(
   init {
     preloadPaymentState()
     loadDialogData()
+    viewModelScope.launch {
+      languagePreferences.language.collect { language -> currentLanguage = language }
+    }
     viewModelScope.launch {
       returnPolicyPreferences.settings.collect { settings -> _returnPolicy.value = settings }
     }
@@ -584,6 +592,16 @@ class CustomerViewModel(
                   modeOfPayment = modeOfPayment,
                   referenceNo = resolvedReference,
                   notes = null,
+                  companyName = context.company,
+                  cashierName =
+                      context.cashier.fullName
+                          .takeIf { it.isNotBlank() }
+                          ?: context.cashier.username.takeIf { it.isNotBlank() }
+                          ?: context.username,
+                  customerName = customer.customerName.ifBlank { customer.name },
+                  posProfileId = context.profileName,
+                  logoUrl = context.cashier.image,
+                  pendingAfterPayment = (outstandingRc - appliedRc).coerceAtLeast(0.0),
               )
 
           loadOutstandingInvoices(
@@ -616,6 +634,12 @@ class CustomerViewModel(
       modeOfPayment: String,
       referenceNo: String?,
       notes: String?,
+      companyName: String? = null,
+      cashierName: String? = null,
+      customerName: String? = null,
+      posProfileId: String? = null,
+      logoUrl: String? = null,
+      pendingAfterPayment: Double? = null,
   ): String {
     val printerEnabled = generalPreferences.printerEnabled.first()
     if (!printerEnabled) return ""
@@ -629,6 +653,16 @@ class CustomerViewModel(
             modeOfPayment = modeOfPayment,
             referenceNo = referenceNo,
             notes = notes,
+            pendingAfterPayment = pendingAfterPayment,
+            language = currentLanguage,
+            metadata =
+                ReceiptTemplateMetadata(
+                    companyName = companyName,
+                    cashierName = cashierName,
+                    customerName = customerName,
+                    posProfileId = posProfileId,
+                    logoUrl = logoUrl,
+                ),
         )
 
     return runCatching {
