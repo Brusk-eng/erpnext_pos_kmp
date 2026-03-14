@@ -236,73 +236,6 @@ interface SalesInvoiceDao {
 
   @Query(
       """
-        SELECT
-            COALESCE(NULLIF(TRIM(currency), ''), 'NIO') AS currency,
-            COALESCE(SUM(
-                CASE
-                    WHEN is_return = 1 THEN -ABS(grand_total)
-                    ELSE grand_total
-                END
-            ), 0.0) AS totalSalesToday,
-            COUNT(CASE WHEN is_return = 0 THEN 1 END) AS invoicesToday,
-            COUNT(
-                DISTINCT CASE
-                    WHEN is_return = 0 AND TRIM(customer) != '' THEN customer
-                END
-            ) AS customersToday
-        FROM tabSalesInvoice
-        WHERE posting_date = :date
-          AND pos_opening_entry = :openingEntryId
-          AND docstatus != 2
-          AND is_deleted = 0
-        GROUP BY COALESCE(NULLIF(TRIM(currency), ''), 'NIO')
-        """
-  )
-  suspend fun getShiftTodaySummaryByCurrency(
-      date: String,
-      openingEntryId: String,
-  ): List<ShiftTodayCurrencySummaryRow>
-
-  @Query(
-      """
-        SELECT DISTINCT COALESCE(NULLIF(UPPER(TRIM(currency)), ''), 'NIO') AS currency
-        FROM tabSalesInvoice
-        WHERE is_deleted = 0
-          AND (:openingEntryId IS NULL OR pos_opening_entry = :openingEntryId)
-        """
-  )
-  suspend fun getAvailableCurrencies(openingEntryId: String? = null): List<String>
-
-  @Query(
-      """
-        SELECT COALESCE(NULLIF(UPPER(TRIM(currency)), ''), 'NIO') AS currency,
-               SUM(
-                    CASE
-                        WHEN is_return = 1 THEN -ABS(grand_total)
-                        ELSE grand_total
-                    END
-               ) AS total,
-               COUNT(CASE WHEN is_return = 0 THEN 1 END) AS invoices,
-               COUNT(
-                    DISTINCT CASE
-                        WHEN is_return = 0 AND TRIM(customer) != '' THEN customer
-                    END
-               ) AS customers
-        FROM tabSalesInvoice
-        WHERE posting_date = :date
-          AND docstatus = 1
-          AND is_deleted = 0
-          AND (:openingEntryId IS NULL OR pos_opening_entry = :openingEntryId)
-        GROUP BY COALESCE(NULLIF(UPPER(TRIM(currency)), ''), 'NIO')
-        """
-  )
-  suspend fun getSalesSummaryForDateByCurrency(
-      date: String,
-      openingEntryId: String? = null,
-  ): List<CurrencySalesSummary>
-
-  @Query(
-      """
         SELECT COUNT(*)
         FROM tabSalesInvoice
         WHERE posting_date = :date
@@ -450,44 +383,6 @@ interface SalesInvoiceDao {
       openingEntryId: String? = null,
   ): List<CurrencyMarginTotal>
 
-  @Query(
-      """
-        SELECT COUNT(*)
-        FROM tabSalesInvoiceItem i
-        INNER JOIN tabSalesInvoice s ON s.invoice_name = i.parent_invoice
-        LEFT JOIN tabItem t ON t.itemCode = i.item_code
-        WHERE s.posting_date BETWEEN :startDate AND :endDate
-          AND s.docstatus = 1
-          AND s.is_deleted = 0
-          AND IFNULL(t.valuation_rate, 0) > 0
-          AND (:openingEntryId IS NULL OR s.pos_opening_entry = :openingEntryId)
-        """
-  )
-  suspend fun countItemsWithCost(
-      startDate: String,
-      endDate: String,
-      openingEntryId: String? = null,
-  ): Int
-
-  @Query(
-      """
-        SELECT COALESCE(NULLIF(UPPER(TRIM(s.currency)), ''), 'NIO') AS currency, COUNT(*) AS count
-        FROM tabSalesInvoiceItem i
-        INNER JOIN tabSalesInvoice s ON s.invoice_name = i.parent_invoice
-        LEFT JOIN tabItem t ON t.itemCode = i.item_code
-        WHERE s.posting_date BETWEEN :startDate AND :endDate
-          AND s.docstatus = 1
-          AND s.is_deleted = 0
-          AND IFNULL(t.valuation_rate, 0) > 0
-          AND (:openingEntryId IS NULL OR s.pos_opening_entry = :openingEntryId)
-        GROUP BY COALESCE(NULLIF(UPPER(TRIM(s.currency)), ''), 'NIO')
-        """
-  )
-  suspend fun countItemsWithCostByCurrency(
-      startDate: String,
-      endDate: String,
-      openingEntryId: String? = null,
-  ): List<CurrencyItemCount>
 
   @Query(
       """
@@ -579,10 +474,6 @@ interface SalesInvoiceDao {
   suspend fun getOutstandingTotalsByCurrency(
       openingEntryId: String? = null
   ): List<CurrencyOutstandingTotal>
-
-  // 🔹 Limpieza / control
-  @Query("DELETE FROM tabSalesInvoice WHERE docstatus = 2") // Cancelled
-  suspend fun deleteCancelledInvoices()
 
   @Transaction
   @Query(

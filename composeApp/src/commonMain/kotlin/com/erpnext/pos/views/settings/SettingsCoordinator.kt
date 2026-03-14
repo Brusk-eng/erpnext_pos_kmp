@@ -27,10 +27,6 @@ class SettingsCoordinator(val viewModel: SettingsViewModel) {
   fun onInventoryAlertTimeChanged(hour: Int, minute: Int) =
       viewModel.setInventoryAlertTime(hour, minute)
 
-  fun onSalesTargetChanged(value: Double) = viewModel.setSalesTargetMonthly(value)
-
-  fun onSyncSalesTarget() = viewModel.syncSalesTargetFromERPNext()
-
   fun onReturnPolicyChanged(settings: ReturnPolicySettings) = viewModel.setReturnPolicy(settings)
 
   fun onSelect(s: String) {}

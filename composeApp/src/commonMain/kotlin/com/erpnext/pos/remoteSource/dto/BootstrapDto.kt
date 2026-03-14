@@ -76,8 +76,7 @@ data class BootstrapContextDto(
     @SerialName("price_list") val priceListSnake: String? = null,
     @SerialName("currency") val currency: String? = null,
     @SerialName("partyAccountCurrency") val partyAccountCurrencyCamel: String? = null,
-    @SerialName("party_account_currency") val partyAccountCurrencySnake: String? = null,
-    @SerialName("monthly_sales_target") val monthlySalesTarget: Double? = null,
+    @SerialName("party_account_currency") val partyAccountCurrencySnake: String? = null
 ) {
   val profileName: String?
     get() = profileNameCamel ?: profileNameSnake

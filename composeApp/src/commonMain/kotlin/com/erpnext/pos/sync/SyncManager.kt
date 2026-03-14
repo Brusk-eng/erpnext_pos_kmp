@@ -474,13 +474,6 @@ class SyncManager(
                     profileName = profileName.takeIf { it.isNotBlank() }
                 )
             snapshot = fetchedSnapshot
-            val remoteMonthlyTarget =
-                fetchedSnapshot.data.context?.monthlySalesTarget?.takeIf { it > 0.0 }
-            bootstrapContextPreferences.update(
-                monthlySalesTarget = remoteMonthlyTarget,
-                replaceMonthlySalesTarget = remoteMonthlyTarget != null,
-                lastSuccessAt = Clock.System.now().toEpochMilliseconds(),
-            )
           } catch (e: Exception) {
             bootstrapContextPreferences.update(lastError = e.message ?: "Bootstrap Fetch failed")
             throw e
@@ -617,12 +610,6 @@ class SyncManager(
                 bootstrapSyncRepository.fetchSnapshot(
                     profileName = profileName.takeIf { it.isNotBlank() }
                 )
-            val remoteMonthlyTarget = snapshot.data.context?.monthlySalesTarget?.takeIf { it > 0.0 }
-            bootstrapContextPreferences.update(
-                monthlySalesTarget = remoteMonthlyTarget,
-                replaceMonthlySalesTarget = remoteMonthlyTarget != null,
-                lastSuccessAt = Clock.System.now().toEpochMilliseconds(),
-            )
             bootstrapSyncRepository.persistAll(snapshot)
             cashBoxManager.initializeContext()
             AppLogger.info("SyncManager.bootstrap refreshed ($trigger)")

@@ -6,30 +6,14 @@ import com.erpnext.pos.base.BaseViewModel
 import com.erpnext.pos.data.repositories.PosProfilePaymentMethodLocalRepository
 import com.erpnext.pos.domain.models.POSProfileSimpleBO
 import com.erpnext.pos.domain.models.UserBO
-import com.erpnext.pos.domain.usecases.FetchPosProfileInfoLocalUseCase
-import com.erpnext.pos.domain.usecases.FetchPosProfileUseCase
-import com.erpnext.pos.domain.usecases.FetchUserInfoUseCase
-import com.erpnext.pos.domain.usecases.HomeMetricInput
-import com.erpnext.pos.domain.usecases.InventoryAlertInput
-import com.erpnext.pos.domain.usecases.LoadHomeMetricsUseCase
-import com.erpnext.pos.domain.usecases.LoadInventoryAlertsUseCase
-import com.erpnext.pos.domain.usecases.LogoutUseCase
-import com.erpnext.pos.domain.usecases.ObserveHomeLiveShiftMetricsInput
-import com.erpnext.pos.domain.usecases.ObserveHomeLiveShiftMetricsUseCase
+import com.erpnext.pos.domain.usecases.*
 import com.erpnext.pos.localSource.dao.POSProfileDao
-import com.erpnext.pos.localSource.datasources.ExchangeRateLocalSource
-import com.erpnext.pos.localSource.preferences.BootstrapContextPreferences
 import com.erpnext.pos.localSource.preferences.GeneralPreferences
 import com.erpnext.pos.localSource.preferences.SyncPreferences
 import com.erpnext.pos.localSource.preferences.SyncSettings
 import com.erpnext.pos.navigation.NavRoute
 import com.erpnext.pos.navigation.NavigationManager
-import com.erpnext.pos.sync.GateResult
-import com.erpnext.pos.sync.OpeningGate
-import com.erpnext.pos.sync.PosProfileGate
-import com.erpnext.pos.sync.SyncContextProvider
-import com.erpnext.pos.sync.SyncManager
-import com.erpnext.pos.sync.SyncState
+import com.erpnext.pos.sync.*
 import com.erpnext.pos.utils.AppLogger
 import com.erpnext.pos.utils.normalizeCurrency
 import com.erpnext.pos.utils.notifications.notifySystem
@@ -37,33 +21,14 @@ import com.erpnext.pos.utils.notifications.scheduleDailyInventoryReminder
 import com.erpnext.pos.views.CashBoxManager
 import com.erpnext.pos.views.PaymentModeWithAmount
 import com.erpnext.pos.views.reconciliation.ReconciliationMode
-import kotlin.math.abs
-import kotlin.time.Clock
-import kotlin.time.ExperimentalTime
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
-import kotlinx.datetime.DatePeriod
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.atTime
-import kotlinx.datetime.number
-import kotlinx.datetime.plus
-import kotlinx.datetime.toInstant
-import kotlinx.datetime.toLocalDateTime
+import kotlinx.datetime.*
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
 @OptIn(ExperimentalTime::class, ExperimentalCoroutinesApi::class)
 class HomeViewModel(
@@ -85,9 +50,7 @@ class HomeViewModel(
     private val homeRefreshController: HomeRefreshController,
     private val sessionRefresher: SessionRefresher,
     private val syncContextProvider: SyncContextProvider,
-    private val generalPreferences: GeneralPreferences,
-    private val exchangeRateLocalSource: ExchangeRateLocalSource,
-    private val bootstrapContextPreferences: BootstrapContextPreferences,
+    private val generalPreferences: GeneralPreferences
 ) : BaseViewModel() {
   private val _stateFlow: MutableStateFlow<HomeState> = MutableStateFlow(HomeState.Loading)
   val stateFlow = _stateFlow.asStateFlow()
@@ -164,14 +127,6 @@ class HomeViewModel(
       }
     }
     viewModelScope.launch {
-      generalPreferences.salesTargetMonthly.distinctUntilChanged().collectLatest { monthlyLocal ->
-        refreshSalesTargetSafely(
-            source = "sales-target-flow",
-            monthlyFromFlow = monthlyLocal.takeIf { it > 0.0 },
-        )
-      }
-    }
-    viewModelScope.launch {
       homeRefreshController.events.collectLatest {
         if (_stateFlow.value is HomeState.POSProfiles) {
           refreshMetrics()
@@ -241,7 +196,6 @@ class HomeViewModel(
             AppLogger.info("HomeViewModel.loadInitialData -> profiles loaded")
             loadMetricsForActiveShift()
             refreshInventoryAlerts()
-            refreshSalesTargetSafely(source = "load-initial")
             _stateFlow.update { HomeState.POSProfiles(posProfiles, userInfo) }
             AppLogger.info("HomeViewModel.loadInitialData -> done")
           }
@@ -260,7 +214,6 @@ class HomeViewModel(
         action = {
           loadMetricsForActiveShift()
           refreshInventoryAlerts()
-          refreshSalesTargetSafely(source = "refresh-metrics")
         },
         exceptionHandler = { it.printStackTrace() },
         loadingMessage = "Actualizando métricas...",
@@ -269,7 +222,6 @@ class HomeViewModel(
 
   private suspend fun loadMetricsForActiveShift() {
     val openingId = resolveMetricsOpeningEntryId()
-    val previous = _homeMetrics.value
     val refreshed =
         loadHomeMetricsUseCase(
             HomeMetricInput(
@@ -278,7 +230,7 @@ class HomeViewModel(
                 openingEntryId = openingId,
             )
         )
-    _homeMetrics.value = refreshed.copy(salesTarget = previous.salesTarget)
+    _homeMetrics.value = refreshed.copy()
   }
 
   private suspend fun resolveMetricsOpeningEntryId(): String? {
@@ -294,7 +246,7 @@ class HomeViewModel(
   }
 
   private fun observeLiveShiftMetrics():
-      Flow<com.erpnext.pos.domain.usecases.HomeLiveShiftMetrics> {
+      Flow<HomeLiveShiftMetrics> {
     return openingEntryId
         .map { it?.trim()?.takeIf { value -> value.isNotBlank() } }
         .distinctUntilChanged()
@@ -318,11 +270,9 @@ class HomeViewModel(
 
   private fun mergeLiveShiftMetrics(
       current: HomeMetrics,
-      live: com.erpnext.pos.domain.usecases.HomeLiveShiftMetrics,
+      live: HomeLiveShiftMetrics,
   ): HomeMetrics {
-    val today = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date.toString()
     val liveByCurrency = live.byCurrency.associateBy { normalizeCurrency(it.currency) }
-    val templateSeries = current.weekSeries
 
     val existingByCurrency = current.currencyMetrics.associateBy { normalizeCurrency(it.currency) }
     val allCurrencyKeys = (existingByCurrency.keys + liveByCurrency.keys).toList().sorted()
@@ -336,22 +286,12 @@ class HomeViewModel(
             val liveInvoices = liveCurrency?.invoicesToday ?: 0
             val liveCustomers = liveCurrency?.customersToday ?: 0
             val liveAvg = liveCurrency?.avgTicket ?: 0.0
-            val updatedSeries = updateWeekSeriesToday(existing.weekSeries, today, liveTotal)
-            val updatedSalesLast7 =
-                if (updatedSeries.isNotEmpty()) {
-                  updatedSeries.sumOf { it.total }
-                } else {
-                  existing.salesLast7
-                }
+
             existing.copy(
                 totalSalesToday = liveTotal,
                 invoicesToday = liveInvoices,
                 avgTicket = liveAvg,
                 customersToday = liveCustomers,
-                salesLast7 = updatedSalesLast7,
-                compareVsYesterday = percentChange(liveTotal, existing.salesYesterday),
-                compareVsLastWeek = percentChange(updatedSalesLast7, existing.salesPrev7),
-                weekSeries = updatedSeries,
             )
           } else {
             val currency = liveCurrency?.currency ?: key
@@ -359,8 +299,6 @@ class HomeViewModel(
             val liveInvoices = liveCurrency?.invoicesToday ?: 0
             val liveCustomers = liveCurrency?.customersToday ?: 0
             val liveAvg = liveCurrency?.avgTicket ?: 0.0
-            val seededSeries = buildZeroBasedSeries(templateSeries, today, liveTotal)
-            val salesLast7 = if (seededSeries.isNotEmpty()) seededSeries.sumOf { it.total } else 0.0
             CurrencyHomeMetric(
                 currency = currency,
                 totalSalesToday = liveTotal,
@@ -368,28 +306,8 @@ class HomeViewModel(
                 avgTicket = liveAvg,
                 customersToday = liveCustomers,
                 outstandingTotal = 0.0,
-                salesYesterday = 0.0,
-                salesLast7 = salesLast7,
-                salesPrev7 = 0.0,
-                compareVsYesterday = null,
-                compareVsLastWeek = null,
-                marginToday = null,
-                marginTodayPercent = null,
-                marginLast7 = null,
-                marginLast7Percent = null,
-                costCoveragePercent = null,
-                weekSeries = seededSeries,
             )
           }
-        }
-
-    val updatedPrimarySeries =
-        updateWeekSeriesToday(current.weekSeries, today, live.totalSalesToday)
-    val updatedSalesLast7 =
-        if (updatedPrimarySeries.isNotEmpty()) {
-          updatedPrimarySeries.sumOf { it.total }
-        } else {
-          current.salesLast7
         }
 
     return current.copy(
@@ -397,62 +315,8 @@ class HomeViewModel(
         invoicesToday = live.invoicesToday,
         avgTicket = live.avgTicket,
         customersToday = live.customersToday,
-        salesLast7 = updatedSalesLast7,
-        compareVsYesterday = percentChange(live.totalSalesToday, current.salesYesterday),
-        compareVsLastWeek = percentChange(updatedSalesLast7, current.salesPrev7),
-        weekSeries = updatedPrimarySeries,
         currencyMetrics = mergedCurrencies,
     )
-  }
-
-  private fun updateWeekSeriesToday(
-      series: List<DailyMetric>,
-      today: String,
-      todayTotal: Double,
-  ): List<DailyMetric> {
-    if (series.isEmpty()) return series
-    var foundToday = false
-    val updated =
-        series.map { metric ->
-          if (metric.date == today) {
-            foundToday = true
-            metric.copy(total = todayTotal)
-          } else {
-            metric
-          }
-        }
-    if (foundToday) return updated
-    val withoutLast = updated.dropLast(1)
-    return withoutLast + DailyMetric(date = today, total = todayTotal)
-  }
-
-  private fun buildZeroBasedSeries(
-      template: List<DailyMetric>,
-      today: String,
-      todayTotal: Double,
-  ): List<DailyMetric> {
-    if (template.isEmpty()) {
-      return listOf(DailyMetric(date = today, total = todayTotal))
-    }
-    val dates = template.map { it.date }
-    var foundToday = false
-    val zeroed =
-        dates.map { date ->
-          if (date == today) {
-            foundToday = true
-            DailyMetric(date = date, total = todayTotal)
-          } else {
-            DailyMetric(date = date, total = 0.0)
-          }
-        }
-    if (foundToday) return zeroed
-    val withoutLast = zeroed.dropLast(1)
-    return withoutLast + DailyMetric(date = today, total = todayTotal)
-  }
-
-  private fun percentChange(current: Double, previous: Double): Double? {
-    if (previous == 0.0) return null
-    return ((current - previous) / previous) * 100.0
   }
 
   private suspend fun refreshInventoryAlerts() {
@@ -515,117 +379,6 @@ class HomeViewModel(
         1_000L
     )
   }
-
-  private suspend fun refreshSalesTargetSafely(source: String, monthlyFromFlow: Double? = null) {
-    runCatching { refreshSalesTarget(monthlyFromFlow) }
-        .onFailure { error ->
-          if (error is CancellationException) throw error
-          AppLogger.warn("HomeViewModel.refreshSalesTarget[$source] -> error", error)
-        }
-  }
-
-  private suspend fun refreshSalesTarget(monthlyFromFlow: Double? = null) {
-    val ctx = contextManager.getContext()
-    val current = _homeMetrics.value.salesTarget
-    val monthlyFromContext = ctx?.monthlySalesTarget?.takeIf { it > 0.0 }
-    val monthlyFromBootstrap =
-        bootstrapContextPreferences.load().monthlySalesTarget?.takeIf { it > 0.0 }
-    val monthlyFromLocal =
-        (monthlyFromFlow ?: generalPreferences.getSalesTargetMonthly()).takeIf { it > 0.0 }
-    val monthly = monthlyFromContext ?: monthlyFromBootstrap ?: monthlyFromLocal
-
-    if (monthly != null && (monthlyFromLocal == null || abs(monthlyFromLocal - monthly) > 0.0001)) {
-      generalPreferences.setSalesTargetMonthly(monthly)
-    }
-
-    if (monthly == null) {
-      if (ctx == null && current != null) return
-      _homeMetrics.update { it.copy(salesTarget = null) }
-      return
-    }
-
-    val baseCurrency =
-        normalizeCurrency(ctx?.companyCurrency ?: current?.baseCurrency ?: ctx?.currency ?: "NIO")
-    val secondaryCurrency =
-        normalizeCurrency(ctx?.currency ?: current?.secondaryCurrency.orEmpty()).takeIf {
-          it.isNotBlank() && it != baseCurrency
-        }
-
-    val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
-    val daysInMonth = daysInMonth(now.year, now.month.number)
-    val daily = if (daysInMonth > 0) monthly / daysInMonth.toDouble() else 0.0
-    val weekly = daily * 7.0
-
-    val rate =
-        if (secondaryCurrency != null) {
-          resolveLocalRate(baseCurrency, secondaryCurrency)
-        } else {
-          null
-        }
-    val rateValue = rate?.rate
-    val stale = rate?.let { isRateStale(it.lastSyncedAt) } ?: false
-
-    val monthlySecondary = rateValue?.let { monthly * it }
-    val weeklySecondary = rateValue?.let { weekly * it }
-    val dailySecondary = rateValue?.let { daily * it }
-
-    _homeMetrics.update {
-      it.copy(
-          salesTarget =
-              SalesTargetMetric(
-                  baseCurrency = baseCurrency,
-                  secondaryCurrency = secondaryCurrency,
-                  monthlyBase = monthly,
-                  weeklyBase = weekly,
-                  dailyBase = daily,
-                  monthlySecondary = monthlySecondary,
-                  weeklySecondary = weeklySecondary,
-                  dailySecondary = dailySecondary,
-                  conversionStale = stale,
-              )
-      )
-    }
-  }
-
-  private fun daysInMonth(year: Int, month: Int): Int {
-    return when (month) {
-      1,
-      3,
-      5,
-      7,
-      8,
-      10,
-      12 -> 31
-      4,
-      6,
-      9,
-      11 -> 30
-      2 -> if (isLeapYear(year)) 29 else 28
-      else -> 30
-    }
-  }
-
-  private fun isLeapYear(year: Int): Boolean {
-    return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
-  }
-
-  private suspend fun resolveLocalRate(from: String, to: String): RateInfo? {
-    val direct = exchangeRateLocalSource.getRate(from, to)
-    if (direct != null) {
-      return RateInfo(direct.rate, direct.lastSyncedAt)
-    }
-    val reverse = exchangeRateLocalSource.getRate(to, from) ?: return null
-    if (reverse.rate == 0.0) return null
-    return RateInfo(1 / reverse.rate, reverse.lastSyncedAt)
-  }
-
-  private fun isRateStale(lastSyncedAt: Long): Boolean {
-    val now = Clock.System.now().toEpochMilliseconds()
-    val sevenDaysMs = 7 * 24 * 60 * 60 * 1000L
-    return now - lastSyncedAt > sevenDaysMs
-  }
-
-  private data class RateInfo(val rate: Double, val lastSyncedAt: Long)
 
   fun consumeInventoryAlertMessage() {
     _inventoryAlertMessage.value = null
@@ -734,3 +487,4 @@ class HomeViewModel(
     }
   }
 }
+// 617

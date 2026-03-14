@@ -617,9 +617,7 @@ val appModule = module {
         homeRefreshController = get(),
         sessionRefresher = get(),
         syncContextProvider = get(),
-        generalPreferences = get(),
-        exchangeRateLocalSource = get(),
-        bootstrapContextPreferences = get(),
+        generalPreferences = get()
     )
   }
   single<IUserRepository> { UserRepository(get()) }
@@ -711,8 +709,6 @@ val appModule = module {
   single { ReturnPolicyPreferences(get()) }
   single {
     SettingsViewModel(
-        get(),
-        get(),
         get(),
         get(),
         get(),

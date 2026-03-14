@@ -15,7 +15,6 @@ class GeneralPreferences(private val store: ConfigurationStore) {
     private const val inventoryAlertsEnabledKey = "inventory_alerts_enabled"
     private const val inventoryAlertHourKey = "inventory_alert_hour"
     private const val inventoryAlertMinuteKey = "inventory_alert_minute"
-    private const val salesTargetMonthlyKey = "sales_target_monthly"
   }
 
   val taxesIncluded: Flow<Boolean> =
@@ -35,8 +34,6 @@ class GeneralPreferences(private val store: ConfigurationStore) {
       store.observeRaw(inventoryAlertHourKey).map { it?.toIntOrNull() ?: 9 }
   val inventoryAlertMinute: Flow<Int> =
       store.observeRaw(inventoryAlertMinuteKey).map { it?.toIntOrNull() ?: 0 }
-  val salesTargetMonthly: Flow<Double> =
-      store.observeRaw(salesTargetMonthlyKey).map { it?.toDoubleOrNull() ?: 0.0 }
 
   suspend fun setTaxesIncluded(enabled: Boolean) {
     store.saveRaw(taxesKey, enabled.toString())
@@ -79,10 +76,6 @@ class GeneralPreferences(private val store: ConfigurationStore) {
     store.saveRaw(inventoryAlertMinuteKey, value.coerceIn(0, 59).toString())
   }
 
-  suspend fun setSalesTargetMonthly(value: Double) {
-    store.saveRaw(salesTargetMonthlyKey, value.coerceAtLeast(0.0).toString())
-  }
-
   suspend fun getInventoryAlertsEnabled(): Boolean =
       store.loadRaw(inventoryAlertsEnabledKey)?.toBooleanStrictOrNull() ?: true
 
@@ -92,6 +85,4 @@ class GeneralPreferences(private val store: ConfigurationStore) {
   suspend fun getInventoryAlertMinute(): Int =
       store.loadRaw(inventoryAlertMinuteKey)?.toIntOrNull() ?: 0
 
-  suspend fun getSalesTargetMonthly(): Double =
-      store.loadRaw(salesTargetMonthlyKey)?.toDoubleOrNull() ?: 0.0
 }
