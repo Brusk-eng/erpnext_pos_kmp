@@ -223,7 +223,7 @@ class LoginViewModel(
         AppLogger.warn("LoginViewModel.onSiteSelected -> error", e)
         _stateFlow.update { LoginState.Error(e.message.toString()) }
       } finally {
-        if (!handedOffToCodeExchange) {
+        if (isDesktop && !handedOffToCodeExchange) {
           transientAuthStore.clearRedirectUri()
           transientAuthStore.clearPkceVerifier()
           transientAuthStore.clearState()

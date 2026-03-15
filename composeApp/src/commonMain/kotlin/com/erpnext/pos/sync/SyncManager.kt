@@ -1,5 +1,6 @@
 package com.erpnext.pos.sync
 
+import com.erpnext.pos.auth.AppLifecycleObserver
 import com.erpnext.pos.auth.SessionRefresher
 import com.erpnext.pos.data.repositories.BootstrapSyncRepository
 import com.erpnext.pos.domain.models.SyncLogEntry
@@ -52,12 +53,12 @@ class SyncManager(
     private val cashBoxManager: CashBoxManager,
     private val networkMonitor: NetworkMonitor,
     private val sessionRefresher: SessionRefresher,
+    private val lifecycleObserver: AppLifecycleObserver,
     private val syncContextProvider: SyncContextProvider,
     private val pushSyncManager: PushSyncRunner,
     private val bootstrapContextPreferences: BootstrapContextPreferences,
 ) : ISyncManager {
   companion object {
-    private const val BOOTSTRAP_REFRESH_INTERVAL_MS = 5 * 60 * 1000L
     private const val STEP_COOLDOWN_MS = 1_000L
     private val BASE_BOOTSTRAP_SECTIONS_WHEN_CASHBOX_CLOSED =
         listOf(
@@ -91,7 +92,10 @@ class SyncManager(
     observeSyncSettings()
     observeOfflineMode()
     observeConnectivity()
-    observeBootstrapRefresh()
+    observeAppResume()
+    observeCashboxOpen()
+    observeSyncSuccess()
+    requestBootstrapRefresh("manager_init")
   }
 
   @OptIn(ExperimentalTime::class)
@@ -554,18 +558,49 @@ class SyncManager(
         if (connected && !wasConnected && shouldAutoSyncOnConnection()) {
           fullSync(ttlHours = syncSettingsCache.ttlHours, force = false)
         }
+        if (connected && !wasConnected) {
+          requestBootstrapRefresh("connectivity_regained")
+        }
         wasConnected = connected
       }
     }
   }
 
-  private fun observeBootstrapRefresh() {
+  private fun observeAppResume() {
     scope.launch {
-      while (true) {
-        delay(BOOTSTRAP_REFRESH_INTERVAL_MS)
-        refreshBootstrapSnapshot(trigger = "interval_5m")
+      lifecycleObserver.onResume.collect {
+        requestBootstrapRefresh("app_resume")
       }
     }
+  }
+
+  private fun observeCashboxOpen() {
+    scope.launch {
+      var wasOpen = false
+      cashBoxManager.cashboxState.collect { isOpen ->
+        if (isOpen && !wasOpen) {
+          requestBootstrapRefresh("cashbox_opened")
+        }
+        wasOpen = isOpen
+      }
+    }
+  }
+
+  private fun observeSyncSuccess() {
+    scope.launch {
+      var lastWasSuccess = false
+      state.collect { syncState ->
+        val isSuccess = syncState is SyncState.SUCCESS
+        if (isSuccess && !lastWasSuccess) {
+          requestBootstrapRefresh("sync_success")
+        }
+        lastWasSuccess = isSuccess
+      }
+    }
+  }
+
+  private fun requestBootstrapRefresh(trigger: String) {
+    scope.launch { refreshBootstrapSnapshot(trigger) }
   }
 
   private suspend fun refreshBootstrapSnapshot(trigger: String): Boolean {
@@ -591,12 +626,10 @@ class SyncManager(
       val bootstrapSnapshot = bootstrapContextPreferences.load()
       val effectiveTtlHours = syncSettingsCache.ttlHours.coerceIn(1, 168)
       if (
-          syncSettingsCache.useTtl &&
-              trigger.startsWith("interval") &&
-              !SyncTTL.isExpired(
-                  bootstrapSnapshot.lastSuccessAt ?: bootstrapSnapshot.lastRequestAt,
-                  effectiveTtlHours,
-              )
+          !SyncTTL.isExpired(
+              bootstrapSnapshot.lastSuccessAt ?: bootstrapSnapshot.lastRequestAt,
+              effectiveTtlHours,
+          )
       ) {
         AppLogger.info(
             "SyncManager.bootstrap skipped ($trigger): TTL not expired " +

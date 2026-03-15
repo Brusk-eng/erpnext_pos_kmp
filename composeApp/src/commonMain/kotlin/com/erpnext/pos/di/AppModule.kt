@@ -390,7 +390,7 @@ val appModule = module {
             generalPreferences = get(),
             lifecycleObserver = get(),
         )
-            .apply { start(intervalMinutes = 1) }
+            .apply { start() }
     }
     single {
         PaymentHandler(
@@ -500,6 +500,7 @@ val appModule = module {
             cashBoxManager = get(),
             networkMonitor = get(),
             sessionRefresher = get(),
+            lifecycleObserver = get(),
             syncContextProvider = get(),
             pushSyncManager = get(),
             bootstrapContextPreferences = get(),

@@ -31,7 +31,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Business
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
@@ -40,7 +39,6 @@ import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material.icons.outlined.WifiOff
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,7 +47,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -84,11 +81,6 @@ import coil3.request.crossfade
 import com.erpnext.pos.NavGraph.Setup
 import com.erpnext.pos.base.getPlatformName
 import com.erpnext.pos.domain.usecases.LogoutUseCase
-import com.erpnext.pos.domain.printing.model.PrintJobStatus
-import com.erpnext.pos.domain.printing.model.TransportType
-import com.erpnext.pos.domain.repositories.printing.IPrintJobRepository
-import com.erpnext.pos.domain.repositories.printing.IPrinterProfileRepository
-import com.erpnext.pos.domain.printing.ports.PrinterDiscoveryService
 import com.erpnext.pos.localSource.dao.CompanyDao
 import com.erpnext.pos.localSource.dao.UserDao
 import com.erpnext.pos.localSource.preferences.GeneralPreferences
@@ -114,11 +106,8 @@ import com.erpnext.pos.sync.SyncManager
 import com.erpnext.pos.sync.SyncState
 import com.erpnext.pos.utils.AppLogger
 import com.erpnext.pos.utils.NetworkMonitor
-import com.erpnext.pos.utils.WindowHeightSizeClass
-import com.erpnext.pos.utils.WindowWidthSizeClass
 import com.erpnext.pos.utils.loading.LoadingIndicator
 import com.erpnext.pos.utils.loading.LoadingUiState
-import com.erpnext.pos.utils.rememberWindowSizeClass
 import com.erpnext.pos.utils.view.SnackbarController
 import com.erpnext.pos.utils.view.SnackbarHost
 import com.erpnext.pos.utils.view.SnackbarPosition
@@ -128,14 +117,11 @@ import com.erpnext.pos.views.activity.ActivityCenter
 import com.erpnext.pos.views.billing.BillingResetController
 import com.erpnext.pos.views.home.HomeRefreshController
 import com.erpnext.pos.views.inventory.InventoryRefreshController
-import kotlin.time.Clock
-import kotlin.time.ExperimentalTime
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
-
-private const val PHONE_SMALLEST_WIDTH_DP = 600f
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
 fun shouldShowBottomBar(currentRoute: String): Boolean {
   return currentRoute !in listOf(NavRoute.Login.path, NavRoute.Splash.path)
@@ -144,6 +130,8 @@ fun shouldShowBottomBar(currentRoute: String): Boolean {
 fun shouldShowTopBar(currentRoute: String): Boolean {
   return shouldShowBottomBar(currentRoute)
 }
+
+private const val PHONE_SMALLEST_WIDTH_DP = 600f
 
 private fun defaultTitleForRoute(route: String, strings: AppStrings): String {
   return when {
@@ -160,17 +148,8 @@ private fun defaultTitleForRoute(route: String, strings: AppStrings): String {
     route.startsWith("payment-entry") -> strings.navigation.expenses
     route == NavRoute.Activity.path -> strings.navigation.activity
     route == NavRoute.Settings.path -> strings.navigation.settings
-    route == NavRoute.Printers.path -> strings.navigation.printers
     else -> ""
   }
-}
-
-private enum class TopBarPrinterState {
-  CONNECTED,
-  DISCONNECTED,
-  OFF,
-  PRINTING,
-  PROBLEM,
 }
 
 private fun NavHostController.navigateTopLevel(route: String) {
@@ -239,9 +218,6 @@ fun AppNavigation() {
   val syncManager = koinInject<SyncManager>()
   val syncPreferences = koinInject<SyncPreferences>()
   val networkMonitor = koinInject<NetworkMonitor>()
-  val printerProfileRepository = koinInject<IPrinterProfileRepository>()
-  val printJobRepository = koinInject<IPrintJobRepository>()
-  val printerDiscoveryService = koinInject<PrinterDiscoveryService>()
   val appTheme by themePreferences.theme.collectAsState(initial = AppColorTheme.Noir)
   val appThemeMode by themePreferences.themeMode.collectAsState(initial = AppThemeMode.System)
 
@@ -274,17 +250,12 @@ fun AppNavigation() {
   val isOnline by networkMonitor.isConnected.collectAsState(false)
   val activityBadgeCount by activityCenter.unreadCount.collectAsState(0)
   val printerEnabled by generalPreferences.printerEnabled.collectAsState(true)
-  val defaultPrinter by printerProfileRepository.observeDefaultProfile().collectAsState(initial = null)
-  val printJobs by printJobRepository.observeJobs().collectAsState(initial = emptyList())
   val posContext by cashBoxManager.contextFlow.collectAsState(null)
   val tokenSnapshot by tokenStore.tokensFlow().collectAsState(initial = null)
   val isCashboxOpen by cashBoxManager.cashboxState.collectAsState()
   var profileMenuExpanded by remember { mutableStateOf(false) }
   var tick by remember { mutableStateOf(0L) }
   var settingsFromMenu by remember { mutableStateOf(false) }
-  var isBluetoothOff by remember { mutableStateOf(false) }
-  var showBluetoothOffDialog by remember { mutableStateOf(false) }
-  var bluetoothOffDialogAcknowledged by remember { mutableStateOf(false) }
 
   LaunchedEffect(Unit) {
     while (true) {
@@ -304,50 +275,14 @@ fun AppNavigation() {
       }
   LaunchedEffect(currentRoute) { AppLogger.info("AppNavigation currentRoute -> $currentRoute") }
 
-  LaunchedEffect(printerEnabled, defaultPrinter?.id) {
-    while (true) {
-      val profile = defaultPrinter
-      if (
-          !printerEnabled ||
-              profile == null ||
-              profile.preferredTransport !in setOf(TransportType.BT_SPP, TransportType.BT_DESKTOP)
-      ) {
-        isBluetoothOff = false
-        showBluetoothOffDialog = false
-        bluetoothOffDialogAcknowledged = false
-      } else {
-        val bluetoothState =
-            runCatching { printerDiscoveryService.bondedDevices(); false }
-                .getOrElse { error ->
-                  val message = error.message.orEmpty().lowercase()
-                  message.contains("bluetooth is turned off") || message.contains("bluetooth apagado")
-                }
-        if (!bluetoothState) {
-          bluetoothOffDialogAcknowledged = false
-        }
-        isBluetoothOff = bluetoothState
-        if (bluetoothState && !bluetoothOffDialogAcknowledged) {
-          showBluetoothOffDialog = true
-          bluetoothOffDialogAcknowledged = true
-        }
-      }
-      delay(5_000)
-    }
-  }
-
   val isDesktop = getPlatformName() == "Desktop"
-  val windowSizeClass = rememberWindowSizeClass()
   val windowInfo = LocalWindowInfo.current
   val density = LocalDensity.current
   val windowWidthDp = with(density) { windowInfo.containerSize.width.toDp().value }
   val windowHeightDp = with(density) { windowInfo.containerSize.height.toDp().value }
   val smallestWidthDp = minOf(windowWidthDp, windowHeightDp)
-  val isPhoneDevice = !isDesktop && smallestWidthDp < PHONE_SMALLEST_WIDTH_DP
-  val isPhoneCompact =
-      isPhoneDevice &&
-          (windowSizeClass.widthSizeClass == WindowWidthSizeClass.Compact ||
-              windowSizeClass.heightSizeClass == WindowHeightSizeClass.Compact)
-  val useRailNavigation = shouldShowBottomBar(currentRoute) && (isDesktop || !isPhoneDevice)
+  val isPhoneCompact = !isDesktop && smallestWidthDp < PHONE_SMALLEST_WIDTH_DP
+  val isPhoneLandscape = isPhoneCompact && windowWidthDp > windowHeightDp
   val previousRoute = navController.previousBackStackEntry?.destination?.route
   val noBackRoutes =
       setOf(
@@ -374,7 +309,6 @@ fun AppNavigation() {
   val topBarState = topBarController.state
   val resolvedShowBack = topBarState.showBack ?: showBackDefault
   val resolvedOnBack: () -> Unit = topBarState.onBack ?: { navController.popBackStack() }
-  val resolvedTopBarVisible = topBarState.isVisible ?: true
   val subtitle = topBarState.subtitle
   val cashier = posContext?.cashier
   val cashierDisplayName =
@@ -443,6 +377,7 @@ fun AppNavigation() {
                 .getOrNull()
       }
   val cashierImageUrl = cashier?.image?.trim()?.takeIf { it.isNotBlank() } ?: localUserImage
+  val showPrinterAction = printerEnabled
 
   AppTheme(theme = appTheme, themeMode = appThemeMode) {
     ProvideAppStrings {
@@ -457,7 +392,7 @@ fun AppNavigation() {
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-              if (!useRailNavigation && shouldShowBottomBar(currentRoute)) {
+              if (!isDesktop && shouldShowBottomBar(currentRoute)) {
                 BottomBarWithCenterFab(
                     snackbarController = snackbarController,
                     navController = navController,
@@ -476,7 +411,7 @@ fun AppNavigation() {
             },
         ) { padding ->
           Row(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (useRailNavigation) {
+            if (isDesktop && shouldShowBottomBar(currentRoute)) {
               DesktopNavigationRail(
                   navController = navController,
                   contextProvider = cashBoxManager,
@@ -484,19 +419,16 @@ fun AppNavigation() {
               )
             }
             Column(modifier = Modifier.weight(1f)) {
-              if (shouldShowTopBar(currentRoute) && (!isPhoneCompact || resolvedTopBarVisible)) {
+              if (shouldShowTopBar(currentRoute)) {
                 GlobalTopBar(
                     title = {
-                      Row(
-                          verticalAlignment = Alignment.CenterVertically,
-                          horizontalArrangement = Arrangement.spacedBy(12.dp),
-                      ) {
+                      if (isPhoneCompact) {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                           Text(
                               text = titleText,
                               color = MaterialTheme.colorScheme.onSurface,
                               style =
-                                  if (isPhoneCompact) {
+                                  if (isPhoneLandscape) {
                                     MaterialTheme.typography.titleMedium
                                   } else {
                                     MaterialTheme.typography.titleLarge
@@ -505,7 +437,7 @@ fun AppNavigation() {
                               overflow = TextOverflow.Ellipsis,
                           )
                           AnimatedVisibility(
-                              visible = !subtitle.isNullOrBlank(),
+                              visible = !subtitle.isNullOrBlank() && !isPhoneLandscape,
                               enter =
                                   fadeIn(tween(200)) +
                                       slideInVertically(
@@ -526,7 +458,7 @@ fun AppNavigation() {
                                       fadeOut(tween(120)) + slideOutVertically { -it / 6 }
                                   )
                                 },
-                                label = "topbarSubtitleAnim",
+                                label = "topbarSubtitleAnimPhone",
                             ) { value ->
                               Text(
                                   text = value,
@@ -538,7 +470,52 @@ fun AppNavigation() {
                             }
                           }
                         }
-                        if (!isPhoneCompact && isCashboxOpen) {
+                      } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                          Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = titleText,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.titleLarge,
+                            )
+                            AnimatedVisibility(
+                                visible = !subtitle.isNullOrBlank(),
+                                enter =
+                                    fadeIn(tween(200)) +
+                                        slideInVertically(
+                                            animationSpec =
+                                                tween(180, easing = FastOutSlowInEasing),
+                                            initialOffsetY = { it / 3 },
+                                        ),
+                                exit =
+                                    fadeOut(tween(120)) +
+                                        slideOutVertically(
+                                            animationSpec =
+                                                tween(120, easing = FastOutSlowInEasing),
+                                            targetOffsetY = { it / 4 },
+                                        ),
+                            ) {
+                              AnimatedContent(
+                                  targetState = subtitle.orEmpty(),
+                                  transitionSpec = {
+                                    (fadeIn(tween(160)) + slideInVertically { it / 6 })
+                                        .togetherWith(
+                                            fadeOut(tween(120)) + slideOutVertically { -it / 6 }
+                                        )
+                                  },
+                                  label = "topbarSubtitleAnim",
+                              ) { value ->
+                                Text(
+                                    text = value,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                              }
+                            }
+                          }
                           ShiftOpenChip(
                               isOpen = isCashboxOpen,
                               duration = formatShiftDuration(shiftStart, tick),
@@ -575,56 +552,60 @@ fun AppNavigation() {
                       val showNewSale =
                           (currentRoute == NavRoute.Billing.path ||
                               currentRoute == NavRoute.Billing.path) && !subtitle.isNullOrBlank()
-                      val latestJob = printJobs.maxByOrNull { it.createdAtEpochMs }
-                      val hasFailedJob = latestJob?.status == PrintJobStatus.FAILED
-                      val isPrintingJob =
-                          latestJob?.status in
-                              setOf(
-                                  PrintJobStatus.CONNECTING,
-                                  PrintJobStatus.RENDERING,
-                                  PrintJobStatus.PRINTING,
-                                  PrintJobStatus.RETRYING,
-                              )
-                      val hasDefaultPrinter = defaultPrinter?.isEnabled == true
-                      val isConnected =
-                          hasDefaultPrinter && !isBluetoothOff && !hasFailedJob && !isPrintingJob
-                      val printerState =
-                          when {
-                            isPrintingJob -> TopBarPrinterState.PRINTING
-                            hasFailedJob -> TopBarPrinterState.PROBLEM
-                            isBluetoothOff -> TopBarPrinterState.OFF
-                            isConnected -> TopBarPrinterState.CONNECTED
-                            else -> TopBarPrinterState.DISCONNECTED
+                      if (isPhoneCompact) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                          AnimatedVisibility(
+                              visible = showNewSale && !isPhoneLandscape,
+                              enter = fadeIn(tween(180)),
+                              exit = fadeOut(tween(160)),
+                          ) {
+                            StatusIconButton(
+                                label = strings.common.newSale,
+                                onClick = { billingResetController.reset() },
+                                tint = MaterialTheme.colorScheme.primary,
+                            ) {
+                              Icon(imageVector = Icons.Outlined.Add, contentDescription = null)
+                            }
                           }
-                      val printerLabel =
-                          when (printerState) {
-                            TopBarPrinterState.CONNECTED -> strings.common.printerConnected
-                            TopBarPrinterState.DISCONNECTED -> strings.common.printerDisconnected
-                            TopBarPrinterState.OFF -> strings.common.printerOff
-                            TopBarPrinterState.PRINTING -> strings.common.printerPrinting
-                            TopBarPrinterState.PROBLEM -> strings.common.printerProblem
+                          StatusIconButton(
+                              label = dbLabel,
+                              onClick = {
+                                if (!isCashboxOpen) {
+                                  snackbarController.show(
+                                      strings.common.openCashboxToSyncError,
+                                      SnackbarType.Error,
+                                      SnackbarPosition.Bottom,
+                                  )
+                                } else {
+                                  scope.launch { syncManager.fullSync(force = true) }
+                                }
+                              },
+                              tint = dbTint,
+                          ) {
+                            if (syncState is SyncState.SYNCING) {
+                              CircularProgressIndicator(Modifier.size(18.dp))
+                            } else {
+                              Icon(Icons.Outlined.Storage, contentDescription = null)
+                            }
                           }
-                      val printerTint =
-                          when (printerState) {
-                            TopBarPrinterState.CONNECTED -> Color(0xFF2E7D32)
-                            TopBarPrinterState.DISCONNECTED ->
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            TopBarPrinterState.OFF -> Color(0xFFF59E0B)
-                            TopBarPrinterState.PRINTING -> MaterialTheme.colorScheme.primary
-                            TopBarPrinterState.PROBLEM -> MaterialTheme.colorScheme.error
+                          if (showPrinterAction) {
+                            StatusIconButton(
+                                label = strings.settings.printerEnabledLabel,
+                                onClick = { navController.navigateSingle(NavRoute.Settings.path) },
+                                tint = MaterialTheme.colorScheme.primary,
+                            ) {
+                              Icon(Icons.Outlined.Print, contentDescription = null)
+                            }
                           }
-                      val printerIcon =
-                          when (printerState) {
-                            TopBarPrinterState.PROBLEM,
-                            TopBarPrinterState.OFF -> Icons.Outlined.Info
-                            else -> Icons.Outlined.Print
-                          }
-                      Row(
-                          horizontalArrangement =
-                              Arrangement.spacedBy(if (isPhoneCompact) 8.dp else 12.dp),
-                          verticalAlignment = Alignment.CenterVertically,
-                      ) {
-                        if (!isPhoneCompact) {
+                        }
+                      } else {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                           AnimatedVisibility(
                               visible = showNewSale,
                               enter = fadeIn(tween(180)),
@@ -638,64 +619,51 @@ fun AppNavigation() {
                               Icon(imageVector = Icons.Outlined.Add, contentDescription = null)
                             }
                           }
-                        }
-                        StatusIconButton(
-                            label =
-                                if (isOnline) strings.common.internetConnected
-                                else strings.common.internetDisconnected,
-                            onClick = {},
-                            enabled = false,
-                            tint =
-                                if (isOnline) Color(0xFF2E7D32)
-                                else MaterialTheme.colorScheme.error,
-                        ) {
-                          Icon(
-                              if (isOnline) Icons.Outlined.Wifi else Icons.Outlined.WifiOff,
-                              contentDescription = null,
-                          )
-                        }
-                        StatusIconButton(
-                            label = dbLabel,
-                            onClick = {
-                              if (isCashboxOpen) {
-                                scope.launch { syncManager.fullSync(force = true) }
-                              } else {
-                                snackbarController.show(
-                                    strings.common.baseCompanySyncOnlyNotice,
-                                    SnackbarType.Info,
-                                    SnackbarPosition.Bottom,
-                                )
-                              }
-                            },
-                            tint = dbTint,
-                        ) {
-                          if (syncState is SyncState.SYNCING) {
-                            CircularProgressIndicator(Modifier.size(18.dp))
-                          } else {
-                            Icon(Icons.Outlined.Storage, contentDescription = null)
-                          }
-                        }
-                        /* StatusIconButton(
-                            label = if (activityBadgeCount > 0) {
-                                "${strings.navigation.activity}: $activityBadgeCount"
-                            } else {
-                                strings.navigation.activity
-                            },
-                            onClick = {
-                                navController.navigateSingle(NavRoute.Activity.path)
-                            },
-                            tint = if (activityBadgeCount > 0) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        ) {
+                          StatusIconButton(
+                              label =
+                                  if (isOnline) strings.common.internetConnected
+                                  else strings.common.internetDisconnected,
+                              onClick = {},
+                              enabled = false,
+                              tint =
+                                  if (isOnline) Color(0xFF2E7D32)
+                                  else MaterialTheme.colorScheme.error,
+                          ) {
                             Icon(
-                                imageVector = Icons.Outlined.Notifications,
-                                contentDescription = null
+                                if (isOnline) Icons.Outlined.Wifi else Icons.Outlined.WifiOff,
+                                contentDescription = null,
                             )
-                        }*/
-                        if (!isPhoneCompact) {
+                          }
+                          StatusIconButton(
+                              label = dbLabel,
+                              onClick = {
+                                if (!isCashboxOpen) {
+                                  snackbarController.show(
+                                      strings.common.openCashboxToSyncError,
+                                      SnackbarType.Error,
+                                      SnackbarPosition.Bottom,
+                                  )
+                                } else {
+                                  scope.launch { syncManager.fullSync(force = true) }
+                                }
+                              },
+                              tint = dbTint,
+                          ) {
+                            if (syncState is SyncState.SYNCING) {
+                              CircularProgressIndicator(Modifier.size(18.dp))
+                            } else {
+                              Icon(Icons.Outlined.Storage, contentDescription = null)
+                            }
+                          }
+                          if (showPrinterAction) {
+                            StatusIconButton(
+                                label = strings.settings.printerEnabledLabel,
+                                onClick = { navController.navigateSingle(NavRoute.Settings.path) },
+                                tint = MaterialTheme.colorScheme.primary,
+                            ) {
+                              Icon(Icons.Outlined.Print, contentDescription = null)
+                            }
+                          }
                           StatusIconButton(
                               label = strings.common.retry,
                               onClick = {
@@ -709,71 +677,57 @@ fun AppNavigation() {
                             Icon(Icons.Outlined.Refresh, contentDescription = null)
                           }
                         }
-                        if (printerEnabled) {
-                          StatusIconButton(
-                              label = printerLabel,
-                              onClick = { navController.navigateSingle(NavRoute.Printers.path) },
-                              tint = printerTint,
-                          ) {
-                            Icon(printerIcon, contentDescription = null)
-                          }
-                        }
                       }
-                      // Spacer(modifier = Modifier.width(8.dp))
                       Row(
                           modifier = Modifier.padding(start = 8.dp, end = 8.dp),
                           verticalAlignment = Alignment.CenterVertically,
                           horizontalArrangement = Arrangement.spacedBy(10.dp),
                       ) {
-                        if (instanceDisplayName != null && !isPhoneCompact) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = MaterialTheme.shapes.medium,
-                                modifier =
-                                    Modifier.clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null,
-                                    ) {
-                                      cashBoxManager.clearContext()
-                                      navController.navigateToLoginRoot()
-                                    },
+                        if (!isPhoneCompact && instanceDisplayName != null) {
+                          Surface(
+                              color = MaterialTheme.colorScheme.surfaceVariant,
+                              shape = MaterialTheme.shapes.medium,
+                              modifier =
+                                  Modifier.clickable(
+                                      interactionSource = remember { MutableInteractionSource() },
+                                      indication = null,
+                                  ) {
+                                    cashBoxManager.clearContext()
+                                    navController.navigateToLoginRoot()
+                                  },
+                          ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                              Row(
-                                  modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                  verticalAlignment = Alignment.CenterVertically,
-                                  horizontalArrangement = Arrangement.spacedBy(8.dp),
-                              ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Business,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                              Icon(
+                                  imageVector = Icons.Outlined.Business,
+                                  contentDescription = null,
+                                  tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                              )
+                              Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = instanceDisplayName,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                 )
-                                Column(horizontalAlignment = Alignment.End) {
-                                  Text(
-                                      text = instanceDisplayName,
-                                      style = MaterialTheme.typography.labelLarge,
-                                      fontWeight = FontWeight.SemiBold,
-                                      color = MaterialTheme.colorScheme.onSurface,
-                                      maxLines = 1,
-                                      overflow = TextOverflow.Ellipsis,
-                                  )
-                                  Text(
-                                      text = strings.common.switchInstance,
-                                      style = MaterialTheme.typography.labelSmall,
-                                      color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                  )
-                                }
+                                Text(
+                                    text = strings.common.switchInstance,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                               }
                             }
+                          }
                         }
-                        if (cashier != null && !isPhoneCompact) {
+                        if (!isPhoneCompact && cashier != null) {
                           Column(horizontalAlignment = Alignment.End) {
                             Text(
                                 cashierDisplayName,
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
                             )
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -833,6 +787,35 @@ fun AppNavigation() {
                               onDismissRequest = { profileMenuExpanded = false },
                               offset = DpOffset(x = 0.dp, y = 8.dp),
                           ) {
+                            if (isPhoneCompact) {
+                              Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                                Text(
+                                    text = cashierDisplayName,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                instanceDisplayName?.let { instance ->
+                                  Text(
+                                      text = instance,
+                                      style = MaterialTheme.typography.labelSmall,
+                                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                      maxLines = 1,
+                                      overflow = TextOverflow.Ellipsis,
+                                  )
+                                }
+                                Text(
+                                    text = if (isOnline) strings.common.online else strings.common.offline,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color =
+                                        if (isOnline) {
+                                          MaterialTheme.colorScheme.primary
+                                        } else {
+                                          MaterialTheme.colorScheme.error
+                                        },
+                                )
+                              }
+                              HorizontalDivider()
+                            }
                             /*Column(
                                 modifier = Modifier.padding(
                                     horizontal = 14.dp,
@@ -896,18 +879,16 @@ fun AppNavigation() {
                                   navController.navigateSingle(NavRoute.Settings.path)
                                 },
                             )
-                            if (isCashboxOpen) {
-                              DropdownMenuItem(
-                                  text = { Text(strings.navigation.reconciliation) },
-                                  leadingIcon = {
-                                    Icon(imageVector = Icons.Outlined.Tune, contentDescription = null)
-                                  },
-                                  onClick = {
-                                    profileMenuExpanded = false
-                                    navController.navigateSingle(NavRoute.Reconciliation().path)
-                                  },
-                              )
-                            }
+                            DropdownMenuItem(
+                                text = { Text(strings.navigation.reconciliation) },
+                                leadingIcon = {
+                                  Icon(imageVector = Icons.Outlined.Tune, contentDescription = null)
+                                },
+                                onClick = {
+                                  profileMenuExpanded = false
+                                  navController.navigateSingle(NavRoute.Reconciliation().path)
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text(strings.common.switchInstance) },
                                 leadingIcon = {
@@ -951,37 +932,6 @@ fun AppNavigation() {
               }
               Box(modifier = Modifier.weight(1f)) {
                 Setup(navController, false)
-                if (showBluetoothOffDialog) {
-                  AlertDialog(
-                      onDismissRequest = { showBluetoothOffDialog = false },
-                      icon = {
-                        Icon(
-                            imageVector = Icons.Outlined.Info,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                        )
-                      },
-                      title = { Text(strings.common.printerOff) },
-                      text = {
-                        Text(strings.common.printerBluetoothOffDialogBody)
-                      },
-                      confirmButton = {
-                        TextButton(
-                            onClick = {
-                              showBluetoothOffDialog = false
-                              navController.navigateSingle(NavRoute.Printers.path)
-                            }
-                        ) {
-                          Text(strings.navigation.printers)
-                        }
-                      },
-                      dismissButton = {
-                        TextButton(onClick = { showBluetoothOffDialog = false }) {
-                          Text(strings.common.understood)
-                        }
-                      },
-                  )
-                }
 
                 SnackbarHost(snackbar = snackbar, onDismiss = snackbarController::dismiss)
 
@@ -1076,11 +1026,7 @@ fun AppNavigation() {
                       is NavRoute.Home -> {
                         val route = navController.currentBackStackEntry?.destination?.route
                         runCatching {
-                              if (
-                                  route == null ||
-                                      route == NavRoute.Login.path ||
-                                      route == NavRoute.Splash.path
-                              ) {
+                              if (route == NavRoute.Login.path || route == NavRoute.Splash.path) {
                                 AppLogger.info("AppNavigation: Home navigation via auth reset")
                                 navController.navigateFromAuthToHome()
                               } else {
@@ -1113,7 +1059,6 @@ fun AppNavigation() {
                       is NavRoute.Reconciliation -> navController.navigateSingle(event.path)
 
                       is NavRoute.Settings -> navController.navigateTopLevel(NavRoute.Settings.path)
-                      is NavRoute.Printers -> navController.navigateSingle(NavRoute.Printers.path)
 
                       is NavRoute.Activity -> navController.navigateSingle(NavRoute.Activity.path)
 
