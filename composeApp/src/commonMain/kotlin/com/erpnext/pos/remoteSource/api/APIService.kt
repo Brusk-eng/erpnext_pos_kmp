@@ -1491,7 +1491,6 @@ class APIService(
       tokenClient.get {
         url {
           takeFrom(endpoint)
-          parameters.append("site_url", normalizedSite)
           parameters.append("platform", platform)
         }
       }

@@ -1,6 +1,5 @@
 package com.erpnext.pos
 
-import android.content.Context
 import com.erpnext.pos.auth.AndroidInstanceSwitcher
 import com.erpnext.pos.auth.InstanceSwitcher
 import com.erpnext.pos.data.AppDatabase
@@ -10,7 +9,6 @@ import com.erpnext.pos.navigation.AuthNavigator
 import com.erpnext.pos.remoteSource.oauth.AuthInfoStore
 import com.erpnext.pos.remoteSource.oauth.TokenStore
 import com.erpnext.pos.remoteSource.oauth.TransientAuthStore
-import com.erpnext.pos.utils.NetworkMonitor
 import com.erpnext.pos.utils.TimeProvider
 import org.koin.dsl.module
 
@@ -20,11 +18,9 @@ val androidModule = module {
   single<TransientAuthStore> { get<TokenStore>() as AndroidTokenStore }
   single<InstanceSwitcher> { AndroidInstanceSwitcher(get()) }
   single<AuthNavigator> { AndroidAuthNavigator() }
-  single { NetworkMonitor(get<Context>()) }
   single { TimeProvider() }
   single { (builder: DatabaseBuilder) -> builder.build() }
   single { get<AppDatabase>().itemDao() }
-  single { get<AppDatabase>().itemReorderDao() }
   single { get<AppDatabase>().userDao() }
   single { get<AppDatabase>().posProfileDao() }
   single { get<AppDatabase>().posProfileLocalDao() }

@@ -2,7 +2,6 @@ package com.erpnext.pos.localSource.entities
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
-import kotlin.time.Clock
 
 @Entity(tableName = "companies", primaryKeys = ["company"])
 data class CompanyEntity(
@@ -13,7 +12,4 @@ data class CompanyEntity(
     @ColumnInfo(name = "default_receivable_account") var defaultReceivableAccount: String? = null,
     @ColumnInfo(name = "default_receivable_account_currency")
     var defaultReceivableAccountCurrency: String? = null,
-    @ColumnInfo(name = "is_deleted") var isDeleted: Boolean = false,
-    @ColumnInfo(name = "last_synced_at")
-    var lastSyncedAt: Long = Clock.System.now().toEpochMilliseconds(),
 )
