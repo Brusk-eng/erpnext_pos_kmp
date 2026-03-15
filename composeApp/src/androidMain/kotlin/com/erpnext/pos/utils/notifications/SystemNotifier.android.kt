@@ -4,11 +4,14 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import com.erpnext.pos.AppContext
 
 private const val CHANNEL_ID = "inventory_alerts"
 private const val CHANNEL_NAME = "Inventory Alerts"
+private const val INVENTORY_ALERT_WORK_NAME = "inventory-alerts-daily"
 
 actual fun notifySystem(title: String, message: String) {
   val context = AppContext.get()
@@ -40,12 +43,52 @@ actual fun scheduleDailyInventoryReminder(
 
 actual fun configureInventoryAlertWorker(enabled: Boolean, hour: Int, minute: Int) {
   val context = AppContext.get()
-  val workManager = androidx.work.WorkManager.getInstance(context)
+  val workManager = WorkManager.getInstance(context)
   if (!enabled) {
-    workManager.cancelUniqueWork("inventory-alerts-daily")
+    workManager.cancelUniqueWork(INVENTORY_ALERT_WORK_NAME)
     return
   }
 
+  enqueueInventoryAlertWorker(
+      workManager = workManager,
+      hour = hour,
+      minute = minute,
+      policy = ExistingWorkPolicy.REPLACE,
+  )
+}
+
+internal fun scheduleNextInventoryAlertWorker(hour: Int, minute: Int) {
+  val workManager = WorkManager.getInstance(AppContext.get())
+  enqueueInventoryAlertWorker(
+      workManager = workManager,
+      hour = hour,
+      minute = minute,
+      policy = ExistingWorkPolicy.APPEND_OR_REPLACE,
+  )
+}
+
+private fun enqueueInventoryAlertWorker(
+    workManager: WorkManager,
+    hour: Int,
+    minute: Int,
+    policy: ExistingWorkPolicy,
+) {
+  val request =
+      OneTimeWorkRequestBuilder<InventoryAlertsWorker>()
+          .setInitialDelay(
+              computeInventoryAlertDelayMillis(hour, minute),
+              java.util.concurrent.TimeUnit.MILLISECONDS,
+          )
+          .build()
+
+  workManager.enqueueUniqueWork(
+      INVENTORY_ALERT_WORK_NAME,
+      policy,
+      request,
+  )
+}
+
+private fun computeInventoryAlertDelayMillis(hour: Int, minute: Int): Long {
   val now = System.currentTimeMillis()
   val calendar =
       java.util.Calendar.getInstance().apply {
@@ -57,16 +100,5 @@ actual fun configureInventoryAlertWorker(enabled: Boolean, hour: Int, minute: In
           add(java.util.Calendar.DAY_OF_YEAR, 1)
         }
       }
-  val initialDelay = calendar.timeInMillis - now
-
-  val request =
-      PeriodicWorkRequestBuilder<InventoryAlertsWorker>(24, java.util.concurrent.TimeUnit.HOURS)
-          .setInitialDelay(initialDelay, java.util.concurrent.TimeUnit.MILLISECONDS)
-          .build()
-
-  workManager.enqueueUniquePeriodicWork(
-      "inventory-alerts-daily",
-      androidx.work.ExistingPeriodicWorkPolicy.UPDATE,
-      request,
-  )
+  return (calendar.timeInMillis - now).coerceAtLeast(1_000L)
 }

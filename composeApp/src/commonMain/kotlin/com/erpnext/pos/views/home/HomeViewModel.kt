@@ -41,8 +41,9 @@ import kotlin.math.abs
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -57,12 +58,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
-import kotlinx.datetime.DatePeriod
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.atTime
 import kotlinx.datetime.number
-import kotlinx.datetime.plus
-import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 
 @OptIn(ExperimentalTime::class, ExperimentalCoroutinesApi::class)
@@ -123,9 +121,10 @@ class HomeViewModel(
   private var lastInventoryProfile: String? = null
   private var lastMetricsOpeningEntryId: String? = null
   private var isLoadingInitial: Boolean = false
+  private var refreshMetricsJob: Job? = null
 
   init {
-    viewModelScope.launch { contextManager.initializeContext() }
+    viewModelScope.launch(Dispatchers.Default) { contextManager.initializeContext() }
     viewModelScope.launch {
       syncPreferences.settings.collectLatest { settings -> _syncSettings.value = settings }
     }
@@ -151,7 +150,7 @@ class HomeViewModel(
         }
         if (normalized == lastMetricsOpeningEntryId) return@collectLatest
         lastMetricsOpeningEntryId = normalized
-        refreshMetrics()
+        requestMetricsRefresh()
       }
     }
     viewModelScope.launch {
@@ -162,7 +161,7 @@ class HomeViewModel(
     viewModelScope.launch {
       syncState.collectLatest { state ->
         if (state is SyncState.SUCCESS) {
-          refreshMetrics()
+          requestMetricsRefresh()
         }
       }
     }
@@ -177,19 +176,10 @@ class HomeViewModel(
     viewModelScope.launch {
       homeRefreshController.events.collectLatest {
         if (_stateFlow.value is HomeState.POSProfiles) {
-          refreshMetrics()
+          requestMetricsRefresh()
         } else {
           loadInitialData()
         }
-      }
-    }
-    viewModelScope.launch {
-      while (true) {
-        val hour = generalPreferences.getInventoryAlertHour()
-        val minute = generalPreferences.getInventoryAlertMinute()
-        val delayMs = millisUntilNextAlert(hour, minute)
-        delay(delayMs)
-        refreshInventoryAlerts()
       }
     }
     loadInitialData()
@@ -232,21 +222,23 @@ class HomeViewModel(
         action = {
           AppLogger.info("HomeViewModel.loadInitialData -> start")
           withTimeout(30_000) {
-            userInfo = fetchUserInfoUseCase.invoke(null)
-            AppLogger.info("HomeViewModel.loadInitialData -> userInfo loaded")
-            when (val gate = posProfileGate.ensureReady()) {
-              is GateResult.Failed -> error(gate.reason)
-              is GateResult.Pending -> error(gate.reason)
-              GateResult.Ready -> Unit
+            withContext(Dispatchers.Default) {
+              userInfo = fetchUserInfoUseCase.invoke(null)
+              AppLogger.info("HomeViewModel.loadInitialData -> userInfo loaded")
+              when (val gate = posProfileGate.ensureReady()) {
+                is GateResult.Failed -> error(gate.reason)
+                is GateResult.Pending -> error(gate.reason)
+                GateResult.Ready -> Unit
+              }
+              AppLogger.info("HomeViewModel.loadInitialData -> gate ready")
+              posProfiles = fetchPosProfileUseCase.invoke(userInfo.email)
+              AppLogger.info("HomeViewModel.loadInitialData -> profiles loaded")
+              loadMetricsForActiveShift()
+              refreshInventoryAlerts()
+              refreshSalesTargetSafely(source = "load-initial")
+              _stateFlow.update { HomeState.POSProfiles(posProfiles, userInfo) }
+              AppLogger.info("HomeViewModel.loadInitialData -> done")
             }
-            AppLogger.info("HomeViewModel.loadInitialData -> gate ready")
-            posProfiles = fetchPosProfileUseCase.invoke(userInfo.email)
-            AppLogger.info("HomeViewModel.loadInitialData -> profiles loaded")
-            loadMetricsForActiveShift()
-            refreshInventoryAlerts()
-            refreshSalesTargetSafely(source = "load-initial")
-            _stateFlow.update { HomeState.POSProfiles(posProfiles, userInfo) }
-            AppLogger.info("HomeViewModel.loadInitialData -> done")
           }
         },
         exceptionHandler = { e ->
@@ -259,13 +251,23 @@ class HomeViewModel(
   }
 
   fun refreshMetrics() {
+    requestMetricsRefresh(showLoading = true)
+  }
+
+  private fun requestMetricsRefresh(showLoading: Boolean = false) {
+    if (refreshMetricsJob?.isActive == true) return
+    refreshMetricsJob =
     executeUseCase(
         action = {
-          loadMetricsForActiveShift()
-          refreshInventoryAlerts()
-          refreshSalesTargetSafely(source = "refresh-metrics")
+          withContext(Dispatchers.Default) {
+            loadMetricsForActiveShift()
+            refreshInventoryAlerts()
+            refreshSalesTargetSafely(source = "refresh-metrics")
+          }
         },
         exceptionHandler = { it.printStackTrace() },
+        finallyHandler = { refreshMetricsJob = null },
+        showLoading = showLoading,
         loadingMessage = "Actualizando métricas...",
     )
   }
@@ -507,23 +509,6 @@ class HomeViewModel(
       _inventoryAlertMessage.value = message
       notifySystem("Inventory Alerts", message)
     }
-  }
-
-  private fun millisUntilNextAlert(hour: Int, minute: Int): Long {
-    val tz = TimeZone.currentSystemDefault()
-    val nowInstant = Clock.System.now()
-    val nowLocal = nowInstant.toLocalDateTime(tz)
-    val targetToday = nowLocal.date.atTime(hour, minute)
-    val targetLocal =
-        if (targetToday <= nowLocal) {
-          nowLocal.date.plus(DatePeriod(days = 1)).atTime(hour, minute)
-        } else {
-          targetToday
-        }
-    val targetInstant = targetLocal.toInstant(tz)
-    return (targetInstant.toEpochMilliseconds() - nowInstant.toEpochMilliseconds()).coerceAtLeast(
-        1_000L
-    )
   }
 
   private suspend fun refreshSalesTargetSafely(source: String, monthlyFromFlow: Double? = null) {

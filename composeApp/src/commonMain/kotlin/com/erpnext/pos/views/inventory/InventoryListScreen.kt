@@ -1,8 +1,5 @@
 package com.erpnext.pos.views.inventory
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -27,7 +24,7 @@ import dev.materii.pullrefresh.rememberPullRefreshState
 import kotlinx.coroutines.flow.flowOf
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InventoryScreen(
     state: InventoryState,
@@ -59,72 +56,68 @@ fun InventoryScreen(
       val isTabletOrDesktop = isDesktop || minOf(windowWidthDp, windowHeightDp) >= 600f
       val isWideLayout = isTabletOrDesktop
 
-      /** 1️⃣ Animación localizada — sin destruir SearchBar ni filtros */
-      AnimatedContent(
-          targetState = state,
-          transitionSpec = {
-            fadeIn(tween(250, easing = LinearOutSlowInEasing)) togetherWith fadeOut(tween(200))
-          },
-          label = "InventoryContentTransition",
-      ) { currentState ->
-        when (currentState) {
-          is InventoryState.Loading -> {
-            // Mantiene el shimmer detrás si ya había datos cargados
-            if (itemsLazy?.itemCount.orZero() > 0) {
-              InventoryContent(
-                  state =
-                      InventoryState.Success(
-                          items = flowOf(PagingData.empty()),
-                          categories = emptyList(),
-                          baseCurrency = baseCurrencyState,
-                          exchangeRate = exchangeRateState,
-                      ),
-                  itemsLazy = itemsLazy!!,
-                  listState = listState,
-                  actions = actions,
-                  searchQuery = searchQuery,
-                  selectedCategory = selectedCategory,
-                  onQueryChanged = { query -> searchQuery = query },
-                  onCategorySelected = { category ->
-                    selectedCategory = category
-                    actions.onCategorySelected(category)
-                  },
-                  isWideLayout = isWideLayout,
-                  isDesktop = isDesktop,
-              )
-              Box(Modifier.fillMaxSize().align(Alignment.Center)) {
-                FullScreenShimmerLoadingOverlay()
-              }
-            } else {
-              FullScreenShimmerLoading()
-            }
-          }
-
-          is InventoryState.Error -> {
-            FullScreenErrorMessage(currentState.message) { actions.onRefresh() }
-          }
-
-          InventoryState.Empty -> {
-            EmptyStateMessage("Inventario vacío", Icons.Default.Inventory2)
-          }
-
-          is InventoryState.Success -> {
+      when (state) {
+        is InventoryState.Loading -> {
+          if (itemsLazy?.itemCount.orZero() > 0) {
             InventoryContent(
-                state = currentState,
-                itemsLazy = currentState.items.collectAsLazyPagingItems(),
+                state =
+                    InventoryState.Success(
+                        items = flowOf(PagingData.empty()),
+                        categories = emptyList(),
+                        baseCurrency = baseCurrencyState,
+                        exchangeRate = exchangeRateState,
+                    ),
+                itemsLazy = itemsLazy!!,
                 listState = listState,
                 actions = actions,
                 searchQuery = searchQuery,
                 selectedCategory = selectedCategory,
-                onQueryChanged = { query -> searchQuery = query },
+                onQueryChanged = { query ->
+                  searchQuery = query
+                  actions.onSearchQueryChanged(query)
+                },
                 onCategorySelected = { category ->
                   selectedCategory = category
                   actions.onCategorySelected(category)
                 },
-                isDesktop = isDesktop,
                 isWideLayout = isWideLayout,
+                isDesktop = isDesktop,
             )
+            Box(Modifier.fillMaxSize().align(Alignment.Center)) {
+              FullScreenShimmerLoadingOverlay()
+            }
+          } else {
+            FullScreenShimmerLoading()
           }
+        }
+
+        is InventoryState.Error -> {
+          FullScreenErrorMessage(state.message) { actions.onRefresh() }
+        }
+
+        InventoryState.Empty -> {
+          EmptyStateMessage("Inventario vacío", Icons.Default.Inventory2)
+        }
+
+        is InventoryState.Success -> {
+          InventoryContent(
+              state = state,
+              itemsLazy = state.items.collectAsLazyPagingItems(),
+              listState = listState,
+              actions = actions,
+              searchQuery = searchQuery,
+              selectedCategory = selectedCategory,
+              onQueryChanged = { query ->
+                searchQuery = query
+                actions.onSearchQueryChanged(query)
+              },
+              onCategorySelected = { category ->
+                selectedCategory = category
+                actions.onCategorySelected(category)
+              },
+              isDesktop = isDesktop,
+              isWideLayout = isWideLayout,
+          )
         }
       }
 

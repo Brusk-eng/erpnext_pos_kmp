@@ -1,7 +1,4 @@
 package com.erpnext.pos.views.inventory.components
-
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -44,7 +41,6 @@ fun <T : Any> rememberPreviewLazyPagingItems(items: List<T>): LazyPagingItems<T>
   return flow.collectAsLazyPagingItems()
 }
 
-@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun InventoryList(
     items: LazyPagingItems<ItemBO>,
@@ -58,100 +54,91 @@ fun InventoryList(
 ) {
   val strings = LocalAppStrings.current
 
-  AnimatedContent(
-      modifier = Modifier.fillMaxWidth(),
-      targetState = items.loadState.refresh,
-      label = "InventoryListAnimation",
-  ) { state ->
-    when {
-      state is LoadState.Loading && items.itemCount == 0 -> {
-        Column(
-            modifier = modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+  when {
+    items.loadState.refresh is LoadState.Loading && items.itemCount == 0 -> {
+      Column(
+          modifier = modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
+          verticalArrangement = Arrangement.spacedBy(12.dp),
+      ) {
+        repeat(8) { ShimmerProductPlaceholder(Modifier.fillMaxWidth().height(110.dp)) }
+      }
+    }
+
+    items.loadState.refresh is LoadState.Error && items.itemCount == 0 -> {
+      ErrorItem(message = strings.inventory.loadInventoryError, onRetry = { items.retry() })
+    }
+
+    else -> {
+      if (isWideLayout) {
+        val spacing = if (isDesktop) 16.dp else 12.dp
+        val minGridCellSize = if (isDesktop) 360.dp else 220.dp
+
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = minGridCellSize),
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(spacing),
+            horizontalArrangement = Arrangement.spacedBy(spacing),
         ) {
-          repeat(8) { ShimmerProductPlaceholder(Modifier.fillMaxWidth().height(110.dp)) }
-        }
-      }
-
-      state is LoadState.Error && items.itemCount == 0 -> {
-        ErrorItem(message = strings.inventory.loadInventoryError, onRetry = { items.retry() })
-      }
-
-      else -> {
-        if (isWideLayout) {
-          val spacing = if (isDesktop) 16.dp else 12.dp
-          val minGridCellSize = if (isDesktop) 360.dp else 220.dp
-
-          LazyVerticalGrid(
-              columns = GridCells.Adaptive(minSize = minGridCellSize),
-              modifier = modifier.fillMaxSize(),
-              contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
-              verticalArrangement = Arrangement.spacedBy(spacing),
-              horizontalArrangement = Arrangement.spacedBy(spacing),
-          ) {
-            items(
-                count = items.itemCount,
-                key = { index ->
-                  val item = items[index]
-                  val keyBase = item?.itemCode ?: item?.name ?: "item-$index"
-                  "$keyBase-$baseCurrency-${exchangeRate}"
-                },
-            ) { index ->
-              val item = items[index]
-              if (item != null) {
-                ProductCard(
-                    actions,
-                    item,
-                    isDesktop = isDesktop,
-                    baseCurrency = baseCurrency,
-                    exchangeRate = exchangeRate,
-                )
-              } else {
-                ShimmerProductPlaceholder(Modifier.fillMaxWidth().height(180.dp))
-              }
+          items(
+              count = items.itemCount,
+              key = { index ->
+                val item = items[index]
+                item?.itemCode ?: item?.name ?: "item-$index"
+              },
+          ) { index ->
+            val item = items[index]
+            if (item != null) {
+              ProductCard(
+                  actions,
+                  item,
+                  isDesktop = isDesktop,
+                  baseCurrency = baseCurrency,
+                  exchangeRate = exchangeRate,
+              )
+            } else {
+              ShimmerProductPlaceholder(Modifier.fillMaxWidth().height(180.dp))
             }
           }
-        } else {
-          LazyColumn(
-              modifier = modifier.fillMaxSize(),
-              state = listState,
-              contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-              verticalArrangement = Arrangement.spacedBy(8.dp),
-          ) {
-            items(
-                count = items.itemCount,
-                key = { index ->
-                  val item = items[index]
-                  val keyBase = item?.itemCode ?: item?.name ?: "item-$index"
-                  "$keyBase-$baseCurrency-${exchangeRate}"
-                },
-            ) { index ->
-              val item = items[index]
-              if (item != null) {
-                ProductCard(
-                    actions,
-                    item,
-                    isDesktop = isDesktop,
-                    baseCurrency = baseCurrency,
-                    exchangeRate = exchangeRate,
-                )
-              } else {
-                // 🔹 Shimmer parcial discreto
-                ShimmerProductPlaceholder(Modifier.fillMaxWidth().height(110.dp))
-              }
+        }
+      } else {
+        LazyColumn(
+            modifier = modifier.fillMaxSize(),
+            state = listState,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          items(
+              count = items.itemCount,
+              key = { index ->
+                val item = items[index]
+                item?.itemCode ?: item?.name ?: "item-$index"
+              },
+          ) { index ->
+            val item = items[index]
+            if (item != null) {
+              ProductCard(
+                  actions,
+                  item,
+                  isDesktop = isDesktop,
+                  baseCurrency = baseCurrency,
+                  exchangeRate = exchangeRate,
+              )
+            } else {
+              ShimmerProductPlaceholder(Modifier.fillMaxWidth().height(110.dp))
+            }
+          }
+
+          when (items.loadState.append) {
+            is LoadState.Loading -> {
+              item { LoadingMoreItem() }
             }
 
-            when (items.loadState.append) {
-              is LoadState.Loading -> {
-                item { LoadingMoreItem() }
-              }
-
-              is LoadState.Error -> {
-                item { ErrorItem(strings.inventory.loadMoreError, onRetry = { items.retry() }) }
-              }
-
-              else -> {}
+            is LoadState.Error -> {
+              item { ErrorItem(strings.inventory.loadMoreError, onRetry = { items.retry() }) }
             }
+
+            else -> {}
           }
         }
       }
