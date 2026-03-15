@@ -16,13 +16,10 @@ import com.erpnext.pos.navigation.NavigationManager
 import com.erpnext.pos.sync.*
 import com.erpnext.pos.utils.AppLogger
 import com.erpnext.pos.utils.normalizeCurrency
-import com.erpnext.pos.utils.notifications.notifySystem
-import com.erpnext.pos.utils.notifications.scheduleDailyInventoryReminder
 import com.erpnext.pos.views.CashBoxManager
 import com.erpnext.pos.views.PaymentModeWithAmount
 import com.erpnext.pos.views.reconciliation.ReconciliationMode
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
@@ -43,7 +40,6 @@ class HomeViewModel(
     private val syncPreferences: SyncPreferences,
     private val navManager: NavigationManager,
     private val loadHomeMetricsUseCase: LoadHomeMetricsUseCase,
-    private val loadInventoryAlertsUseCase: LoadInventoryAlertsUseCase,
     private val observeHomeLiveShiftMetricsUseCase: ObserveHomeLiveShiftMetricsUseCase,
     private val posProfileGate: PosProfileGate,
     private val openingGate: OpeningGate,
@@ -70,9 +66,6 @@ class HomeViewModel(
   val syncSettings: StateFlow<SyncSettings> = _syncSettings.asStateFlow()
   private val _homeMetrics = MutableStateFlow(HomeMetrics())
   val homeMetrics: StateFlow<HomeMetrics> = _homeMetrics.asStateFlow()
-
-  private val _inventoryAlertMessage = MutableStateFlow<String?>(null)
-  val inventoryAlertMessage: StateFlow<String?> = _inventoryAlertMessage.asStateFlow()
 
   private val _openingState = MutableStateFlow(CashboxOpeningProfileState())
   val openingState: StateFlow<CashboxOpeningProfileState> = _openingState.asStateFlow()
@@ -135,15 +128,6 @@ class HomeViewModel(
         }
       }
     }
-    viewModelScope.launch {
-      while (true) {
-        val hour = generalPreferences.getInventoryAlertHour()
-        val minute = generalPreferences.getInventoryAlertMinute()
-        val delayMs = millisUntilNextAlert(hour, minute)
-        delay(delayMs)
-        refreshInventoryAlerts()
-      }
-    }
     loadInitialData()
   }
 
@@ -195,7 +179,6 @@ class HomeViewModel(
             posProfiles = fetchPosProfileUseCase.invoke(userInfo.email)
             AppLogger.info("HomeViewModel.loadInitialData -> profiles loaded")
             loadMetricsForActiveShift()
-            refreshInventoryAlerts()
             _stateFlow.update { HomeState.POSProfiles(posProfiles, userInfo) }
             AppLogger.info("HomeViewModel.loadInitialData -> done")
           }
@@ -213,7 +196,6 @@ class HomeViewModel(
     executeUseCase(
         action = {
           loadMetricsForActiveShift()
-          refreshInventoryAlerts()
         },
         exceptionHandler = { it.printStackTrace() },
         loadingMessage = "Actualizando métricas...",
@@ -317,71 +299,6 @@ class HomeViewModel(
         customersToday = live.customersToday,
         currencyMetrics = mergedCurrencies,
     )
-  }
-
-  private suspend fun refreshInventoryAlerts() {
-    val ctx = syncContextProvider.buildContext() ?: return
-    if (ctx.warehouseId.isBlank()) return
-    val alertsEnabled = generalPreferences.getInventoryAlertsEnabled()
-    val alertHour = generalPreferences.getInventoryAlertHour()
-    val alertMinute = generalPreferences.getInventoryAlertMinute()
-    if (!alertsEnabled) {
-      _homeMetrics.update { it.copy(inventoryAlerts = emptyList()) }
-      scheduleDailyInventoryReminder(false, "Inventory Alerts", "", alertHour, alertMinute)
-      return
-    }
-    val alerts =
-        loadInventoryAlertsUseCase(
-            InventoryAlertInput(
-                instanceId = ctx.instanceId,
-                companyId = ctx.companyId,
-                warehouseId = ctx.warehouseId,
-                limit = 20,
-            )
-        )
-    _homeMetrics.update { it.copy(inventoryAlerts = alerts) }
-    val hasAlerts = alerts.isNotEmpty()
-    val scheduledMessage =
-        if (hasAlerts) "Alertas de inventario pendientes: ${alerts.size} (${ctx.warehouseId})"
-        else ""
-    scheduleDailyInventoryReminder(
-        hasAlerts,
-        "Inventory Alerts",
-        scheduledMessage,
-        alertHour,
-        alertMinute,
-    )
-    if (!hasAlerts) return
-
-    val today = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date.toString()
-    val lastDate = generalPreferences.getInventoryAlertDate()
-    if (lastDate != today) {
-      generalPreferences.setInventoryAlertDate(today)
-      val message = "Alertas de inventario: ${alerts.size} (${ctx.warehouseId})"
-      _inventoryAlertMessage.value = message
-      notifySystem("Inventory Alerts", message)
-    }
-  }
-
-  private fun millisUntilNextAlert(hour: Int, minute: Int): Long {
-    val tz = TimeZone.currentSystemDefault()
-    val nowInstant = Clock.System.now()
-    val nowLocal = nowInstant.toLocalDateTime(tz)
-    val targetToday = nowLocal.date.atTime(hour, minute)
-    val targetLocal =
-        if (targetToday <= nowLocal) {
-          nowLocal.date.plus(DatePeriod(days = 1)).atTime(hour, minute)
-        } else {
-          targetToday
-        }
-    val targetInstant = targetLocal.toInstant(tz)
-    return (targetInstant.toEpochMilliseconds() - nowInstant.toEpochMilliseconds()).coerceAtLeast(
-        1_000L
-    )
-  }
-
-  fun consumeInventoryAlertMessage() {
-    _inventoryAlertMessage.value = null
   }
 
   fun isCashboxOpen(): StateFlow<Boolean> = contextManager.cashboxState

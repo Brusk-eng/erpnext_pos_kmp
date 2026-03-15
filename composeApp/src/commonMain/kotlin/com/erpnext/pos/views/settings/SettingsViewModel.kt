@@ -10,7 +10,6 @@ import com.erpnext.pos.localSource.preferences.*
 import com.erpnext.pos.localization.AppLanguage
 import com.erpnext.pos.sync.SyncManager
 import com.erpnext.pos.sync.SyncState
-import com.erpnext.pos.utils.notifications.configureInventoryAlertWorker
 import com.erpnext.pos.views.CashBoxManager
 import com.erpnext.pos.views.POSContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,9 +50,6 @@ class SettingsViewModel(
               generalPreferences.cashDrawerEnabled,
               generalPreferences.allowNegativeStock,
               returnPolicyPreferences.settings,
-              generalPreferences.inventoryAlertsEnabled,
-              generalPreferences.inventoryAlertHour,
-              generalPreferences.inventoryAlertMinute,
           ) { args: Array<Any?> ->
             val ctx = args[0] as POSContext?
             val openingEntryId = args[1] as String?
@@ -69,9 +65,6 @@ class SettingsViewModel(
             val drawer = args[11] as Boolean
             val allowNegativeStock = args[12] as Boolean
             val returnPolicy = args[13] as com.erpnext.pos.domain.models.ReturnPolicySettings
-            val inventoryAlertsEnabled = args[14] as Boolean
-            val inventoryAlertHour = args[15] as Int
-            val inventoryAlertMinute = args[16] as Int
 
             POSSettingState.Success(
                 settings =
@@ -94,9 +87,6 @@ class SettingsViewModel(
                 theme = theme,
                 themeMode = themeMode,
                 returnPolicy = returnPolicy,
-                inventoryAlertsEnabled = inventoryAlertsEnabled,
-                inventoryAlertHour = inventoryAlertHour,
-                inventoryAlertMinute = inventoryAlertMinute,
                 syncLog = syncLog.filterIsInstance<com.erpnext.pos.domain.models.SyncLogEntry>(),
             )
           }
@@ -148,21 +138,6 @@ class SettingsViewModel(
     viewModelScope.launch { generalPreferences.setCashDrawerEnabled(enabled) }
   }
 
-  fun setInventoryAlertsEnabled(enabled: Boolean) {
-    viewModelScope.launch {
-      generalPreferences.setInventoryAlertsEnabled(enabled)
-      updateInventoryAlertSchedule()
-    }
-  }
-
-  fun setInventoryAlertTime(hour: Int, minute: Int) {
-    viewModelScope.launch {
-      generalPreferences.setInventoryAlertHour(hour)
-      generalPreferences.setInventoryAlertMinute(minute)
-      updateInventoryAlertSchedule()
-    }
-  }
-
   fun setReturnPolicy(settings: com.erpnext.pos.domain.models.ReturnPolicySettings) {
     viewModelScope.launch { returnPolicyPreferences.save(settings) }
   }
@@ -179,11 +154,5 @@ class SettingsViewModel(
     viewModelScope.launch { themePreferences.setThemeMode(mode) }
   }
 
-  private suspend fun updateInventoryAlertSchedule() {
-    val enabled = generalPreferences.getInventoryAlertsEnabled()
-    val hour = generalPreferences.getInventoryAlertHour()
-    val minute = generalPreferences.getInventoryAlertMinute()
-    configureInventoryAlertWorker(enabled, hour, minute)
-  }
 }
  // 270

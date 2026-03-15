@@ -54,22 +54,10 @@ fun PosSettingsScreen(state: POSSettingState, action: POSSettingAction) {
     Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState).padding(contentPadding)) {
       when (state) {
         is POSSettingState.Success -> {
-          var showAlertTimeDialog by remember { mutableStateOf(false) }
           var showReturnDaysDialog by remember { mutableStateOf(false) }
           var showReturnDestinationDialog by remember { mutableStateOf(false) }
           var showTtlHoursDialog by remember { mutableStateOf(false) }
 
-          if (showAlertTimeDialog) {
-            InventoryAlertTimeDialog(
-                initialHour = state.inventoryAlertHour,
-                initialMinute = state.inventoryAlertMinute,
-                onDismiss = { showAlertTimeDialog = false },
-                onConfirm = { hour, minute ->
-                  showAlertTimeDialog = false
-                  action.onInventoryAlertTimeChanged(hour, minute)
-                },
-            )
-          }
           if (showReturnDaysDialog) {
             ReturnPolicyDaysDialog(
                 initialValue = state.returnPolicy.maxDaysAfterInvoice,
@@ -239,28 +227,6 @@ fun PosSettingsScreen(state: POSSettingState, action: POSSettingAction) {
                 onCheckedChange = { enabled ->
                   action.onReturnPolicyChanged(state.returnPolicy.copy(requireReason = enabled))
                 },
-                compact = isCompact,
-                showDivider = false,
-            )
-          }
-
-          SettingSection(
-              title = strings.settings.inventoryAlertsTitle,
-              description = strings.settings.inventoryAlertsTimeHint,
-              icon = Icons.Outlined.Notifications,
-              compact = isCompact,
-          ) {
-            SettingToggle(
-                label = strings.settings.inventoryAlertsEnabledLabel,
-                checked = state.inventoryAlertsEnabled,
-                onCheckedChange = action.onInventoryAlertsEnabledChanged,
-                compact = isCompact,
-            )
-            SettingItem(
-                label = strings.settings.inventoryAlertsTimeLabel,
-                value = formatTime(state.inventoryAlertHour, state.inventoryAlertMinute),
-                onClick = { showAlertTimeDialog = true },
-                enabled = state.inventoryAlertsEnabled,
                 compact = isCompact,
                 showDivider = false,
             )
@@ -738,103 +704,6 @@ private fun SettingToggle(
 }
 
 @Composable
-private fun InventoryAlertTimeDialog(
-    initialHour: Int,
-    initialMinute: Int,
-    onDismiss: () -> Unit,
-    onConfirm: (Int, Int) -> Unit,
-) {
-  val strings = LocalAppStrings.current
-  var hour by remember { mutableStateOf(initialHour.coerceIn(0, 23)) }
-  var minute by remember { mutableStateOf(initialMinute.coerceIn(0, 59)) }
-  var hourExpanded by remember { mutableStateOf(false) }
-  var minuteExpanded by remember { mutableStateOf(false) }
-
-  AlertDialog(
-      onDismissRequest = onDismiss,
-      title = { Text(strings.settings.inventoryAlertsTimeLabel) },
-      text = {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-          ExposedDropdownMenuBox(
-              expanded = hourExpanded,
-              onExpandedChange = { hourExpanded = !hourExpanded },
-              modifier = Modifier.weight(1f),
-          ) {
-            OutlinedTextField(
-                value = hour.toString().padStart(2, '0'),
-                onValueChange = {},
-                label = { Text("HH") },
-                readOnly = true,
-                trailingIcon = {
-                  ExposedDropdownMenuDefaults.TrailingIcon(expanded = hourExpanded)
-                },
-                colors = ExposedDropdownMenuDefaults.textFieldColors(),
-                modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-            )
-            ExposedDropdownMenu(
-                expanded = hourExpanded,
-                onDismissRequest = { hourExpanded = false },
-            ) {
-              (0..23).forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(option.toString().padStart(2, '0')) },
-                    onClick = {
-                      hour = option
-                      hourExpanded = false
-                    },
-                )
-              }
-            }
-          }
-
-          ExposedDropdownMenuBox(
-              expanded = minuteExpanded,
-              onExpandedChange = { minuteExpanded = !minuteExpanded },
-              modifier = Modifier.weight(1f),
-          ) {
-            OutlinedTextField(
-                value = minute.toString().padStart(2, '0'),
-                onValueChange = {},
-                label = { Text("MM") },
-                readOnly = true,
-                trailingIcon = {
-                  ExposedDropdownMenuDefaults.TrailingIcon(expanded = minuteExpanded)
-                },
-                colors = ExposedDropdownMenuDefaults.textFieldColors(),
-                modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-            )
-            ExposedDropdownMenu(
-                expanded = minuteExpanded,
-                onDismissRequest = { minuteExpanded = false },
-            ) {
-              (0..59).forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(option.toString().padStart(2, '0')) },
-                    onClick = {
-                      minute = option
-                      minuteExpanded = false
-                    },
-                )
-              }
-            }
-          }
-        }
-      },
-      confirmButton = {
-        Button(onClick = { onConfirm(hour, minute) }) {
-          Text(strings.settings.inventoryAlertsTimeSaveLabel)
-        }
-      },
-      dismissButton = {
-        TextButton(onClick = onDismiss) { Text(strings.settings.inventoryAlertsTimeCancelLabel) }
-      },
-  )
-}
-
-private fun formatTime(hour: Int, minute: Int): String =
-    "${hour.coerceIn(0, 23).toString().padStart(2, '0')}:${minute.coerceIn(0, 59).toString().padStart(2, '0')}"
-
-@Composable
 private fun TtlHoursDialog(initialValue: Int, onDismiss: () -> Unit, onConfirm: (Int) -> Unit) {
   val strings = LocalAppStrings.current
   var input by remember { mutableStateOf(initialValue.coerceIn(1, 168).toString()) }
@@ -859,11 +728,8 @@ private fun TtlHoursDialog(initialValue: Int, onDismiss: () -> Unit, onConfirm: 
               onConfirm(value)
             }
         ) {
-          Text(strings.settings.inventoryAlertsTimeSaveLabel)
+          Text(strings.settings.ttlHoursInputLabel) // TODO: Validate if this is part from StockAlert
         }
-      },
-      dismissButton = {
-        TextButton(onClick = onDismiss) { Text(strings.settings.inventoryAlertsTimeCancelLabel) }
       },
   )
 }

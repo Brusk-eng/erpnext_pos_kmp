@@ -33,9 +33,6 @@ sealed class POSSettingState {
       val theme: AppColorTheme,
       val themeMode: AppThemeMode,
       val returnPolicy: ReturnPolicySettings,
-      val inventoryAlertsEnabled: Boolean,
-      val inventoryAlertHour: Int,
-      val inventoryAlertMinute: Int,
       val syncLog: List<SyncLogEntry>,
   ) : POSSettingState()
 
@@ -48,8 +45,6 @@ data class POSSettingAction(
     val onOfflineModeChanged: (Boolean) -> Unit = {},
     val onPrinterEnabledChanged: (Boolean) -> Unit = {},
     val onCashDrawerEnabledChanged: (Boolean) -> Unit = {},
-    val onInventoryAlertsEnabledChanged: (Boolean) -> Unit = {},
-    val onInventoryAlertTimeChanged: (Int, Int) -> Unit = { _, _ -> },
     val onReturnPolicyChanged: (ReturnPolicySettings) -> Unit = {},
     val onSelect: (String) -> Unit = {},
     val onSyncNow: () -> Unit = {},

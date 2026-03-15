@@ -17,7 +17,6 @@ import com.erpnext.pos.localSource.dao.CustomerOutboxDao
 import com.erpnext.pos.localSource.dao.DeliveryChargeDao
 import com.erpnext.pos.localSource.dao.ExchangeRateDao
 import com.erpnext.pos.localSource.dao.ItemDao
-import com.erpnext.pos.localSource.dao.ItemReorderDao
 import com.erpnext.pos.localSource.dao.ModeOfPaymentDao
 import com.erpnext.pos.localSource.dao.POSClosingEntryDao
 import com.erpnext.pos.localSource.dao.POSOpeningEntryDao
@@ -44,7 +43,6 @@ import com.erpnext.pos.localSource.entities.CustomerOutboxEntity
 import com.erpnext.pos.localSource.entities.DeliveryChargeEntity
 import com.erpnext.pos.localSource.entities.ExchangeRateEntity
 import com.erpnext.pos.localSource.entities.ItemEntity
-import com.erpnext.pos.localSource.entities.ItemReorderEntity
 import com.erpnext.pos.localSource.entities.ModeOfPaymentEntity
 import com.erpnext.pos.localSource.entities.POSClosingEntryEntity
 import com.erpnext.pos.localSource.entities.POSInvoicePaymentEntity
@@ -66,7 +64,6 @@ import com.erpnext.pos.localSource.entities.UserEntity
         [
             UserEntity::class,
             ItemEntity::class,
-            ItemReorderEntity::class,
             POSProfileEntity::class,
             PosProfileLocalEntity::class,
             PosProfilePaymentMethodEntity::class,
@@ -95,7 +92,7 @@ import com.erpnext.pos.localSource.entities.UserEntity
             SupplierEntity::class,
             CompanyAccountEntity::class,
         ],
-    version = 2,
+    version = 1,
     exportSchema = true,
 )
 @ConstructedBy(AppDatabaseConstructor::class)
@@ -103,8 +100,6 @@ abstract class AppDatabase : RoomDatabase() {
   abstract fun userDao(): UserDao
 
   abstract fun itemDao(): ItemDao
-
-  abstract fun itemReorderDao(): ItemReorderDao
 
   abstract fun posProfileDao(): POSProfileDao
 

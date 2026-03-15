@@ -27,7 +27,6 @@ fun rememberHomeActions(coordinator: HomeCoordinator): HomeAction {
         syncState = coordinator.syncState,
         syncSettings = coordinator.syncSettings,
         homeMetrics = coordinator.homeMetrics,
-        inventoryAlertMessage = coordinator.inventoryAlertMessage,
         openingState = coordinator.openingState,
         openingEntryId = coordinator.openingEntryId,
         initialState = coordinator::initialState,
@@ -42,7 +41,6 @@ fun rememberHomeActions(coordinator: HomeCoordinator): HomeAction {
         onOpenCashbox = coordinator::openCashbox,
         closeCashbox = coordinator::closeCashbox,
         isCashboxOpen = coordinator::isCashboxOpen,
-        onInventoryAlertConsumed = coordinator::consumeInventoryAlertMessage,
     )
   }
 }

@@ -168,7 +168,6 @@ class APIService(
                       includeInventory = false,
                       includeCustomers = false,
                       includeInvoices = false,
-                      includeAlerts = false,
                       includeActivity = false,
                       recentPaidOnly = true,
                   )
@@ -237,7 +236,6 @@ class APIService(
                   includeInventory = false,
                   includeCustomers = false,
                   includeInvoices = false,
-                  includeAlerts = false,
                   includeActivity = false,
                   recentPaidOnly = true,
               )
@@ -298,7 +296,6 @@ class APIService(
             includeInventory = false,
             includeCustomers = false,
             includeInvoices = true,
-            includeAlerts = false,
             includeActivity = false,
             territory = territory,
             route = territory,
@@ -318,7 +315,6 @@ class APIService(
             includeInventory = false,
             includeCustomers = false,
             includeInvoices = false,
-            includeAlerts = false,
             includeActivity = false,
             recentPaidOnly = true,
         )
@@ -334,7 +330,6 @@ class APIService(
             includeInventory = false,
             includeCustomers = false,
             includeInvoices = false,
-            includeAlerts = false,
             includeActivity = false,
             recentPaidOnly = true,
         )
@@ -524,7 +519,6 @@ class APIService(
             includeInventory = false,
             includeCustomers = false,
             includeInvoices = false,
-            includeAlerts = false,
             includeActivity = false,
             recentPaidOnly = true,
         )
@@ -540,7 +534,6 @@ class APIService(
             includeInventory = false,
             includeCustomers = false,
             includeInvoices = false,
-            includeAlerts = false,
             includeActivity = false,
             recentPaidOnly = true,
         )
@@ -557,7 +550,6 @@ class APIService(
             includeInventory = true,
             includeCustomers = false,
             includeInvoices = false,
-            includeAlerts = false,
             includeActivity = false,
             recentPaidOnly = true,
         )
@@ -571,7 +563,6 @@ class APIService(
             includeInventory = true,
             includeCustomers = false,
             includeInvoices = false,
-            includeAlerts = false,
             includeActivity = false,
             recentPaidOnly = true,
             limit = BOOTSTRAP_SNAPSHOT_LIMIT,
@@ -669,7 +660,6 @@ class APIService(
                   includeInventory = false,
                   includeCustomers = false,
                   includeInvoices = false,
-                  includeAlerts = false,
                   includeActivity = false,
                   profileName = posProfile,
                   recentPaidOnly = true,
@@ -712,7 +702,6 @@ class APIService(
             includeInventory = false,
             includeCustomers = false,
             includeInvoices = false,
-            includeAlerts = false,
             includeActivity = false,
             recentPaidOnly = true,
         )
@@ -756,7 +745,6 @@ class APIService(
             includeInventory = false,
             includeCustomers = false,
             includeInvoices = false,
-            includeAlerts = false,
             includeActivity = false,
             recentPaidOnly = true,
             profileName = profileName,
@@ -1037,7 +1025,6 @@ class APIService(
     val hasCustomerMeta = parseBootstrapPagination(firstRaw, "customers") != null
     val hasInvoiceMeta = parseBootstrapPagination(firstRaw, "invoices") != null
     val hasPaymentMeta = parseBootstrapPagination(firstRaw, "payment_entries") != null
-    val hasAlertsMeta = parseBootstrapPagination(firstRaw, "inventory_alerts") != null
     val hasActivityMeta = parseBootstrapPagination(firstRaw, "activity") != null
 
     if (payload.includeInventory || hasInventoryMeta || firstData.inventoryItems.isNotEmpty()) {
@@ -1091,19 +1078,6 @@ class APIService(
             data.paymentEntries
           }
       resolved = resolved.copy(paymentEntries = paymentEntries)
-    }
-    if (payload.includeAlerts || hasAlertsMeta || firstData.inventoryAlerts.isNotEmpty()) {
-      val alerts =
-          fetchPagedSection(
-              payload = payload,
-              sectionKey = "inventory_alerts",
-              firstRaw = firstRaw,
-              firstItems = firstData.inventoryAlerts,
-              dedupeKey = { it.toString() },
-          ) { data ->
-            data.inventoryAlerts
-          }
-      resolved = resolved.copy(inventoryAlerts = alerts)
     }
     if (payload.includeActivity || hasActivityMeta || firstData.activityEvents.isNotEmpty()) {
       val activity =
@@ -1264,10 +1238,6 @@ class APIService(
     val companyAccounts = raw["company_accounts"]
     if (companyAccounts is JsonArray) {
       normalized["company_accounts"] = companyAccounts
-    }
-    val alerts = raw["inventory_alerts"]
-    if (alerts is JsonObject) {
-      normalized["inventory_alerts"] = alerts["items"] ?: JsonArray(emptyList())
     }
     return JsonObject(normalized)
   }
@@ -1460,7 +1430,6 @@ class APIService(
                       includeInventory = false,
                       includeCustomers = false,
                       includeInvoices = false,
-                      includeAlerts = false,
                       includeActivity = false,
                       recentPaidOnly = true,
                   )
@@ -1505,7 +1474,6 @@ class APIService(
             includeInventory = false,
             includeCustomers = false,
             includeInvoices = false,
-            includeAlerts = false,
             includeActivity = false,
             recentPaidOnly = true,
             profileName = profileName,
@@ -1599,7 +1567,6 @@ class APIService(
             includeInventory = true,
             includeCustomers = false,
             includeInvoices = false,
-            includeAlerts = false,
             includeActivity = false,
             recentPaidOnly = true,
             warehouse = warehouse,
@@ -1662,7 +1629,6 @@ class APIService(
             includeInventory = false,
             includeCustomers = true,
             includeInvoices = false,
-            includeAlerts = false,
             includeActivity = false,
             route = territory,
             territory = territory,
@@ -1682,7 +1648,6 @@ class APIService(
             includeInventory = false,
             includeCustomers = true,
             includeInvoices = true,
-            includeAlerts = false,
             includeActivity = false,
             recentPaidOnly = recentPaidOnly,
             profileName = profileName,
@@ -1794,7 +1759,6 @@ class APIService(
             includeInventory = false,
             includeCustomers = false,
             includeInvoices = true,
-            includeAlerts = false,
             includeActivity = false,
             profileName = posProfile,
             recentPaidOnly = recentPaidOnly,
@@ -1809,7 +1773,6 @@ class APIService(
             includeInventory = false,
             includeCustomers = false,
             includeInvoices = false,
-            includeAlerts = false,
             includeActivity = false,
             recentPaidOnly = true,
             limit = BOOTSTRAP_SNAPSHOT_LIMIT,

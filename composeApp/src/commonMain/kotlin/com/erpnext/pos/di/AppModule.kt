@@ -19,7 +19,6 @@ import com.erpnext.pos.data.repositories.CustomerSyncRepository
 import com.erpnext.pos.data.repositories.DeliveryChargesRepository
 import com.erpnext.pos.data.repositories.ExchangeRateRepository
 import com.erpnext.pos.data.repositories.InternalTransferRepository
-import com.erpnext.pos.data.repositories.InventoryAlertRepository
 import com.erpnext.pos.data.repositories.InventoryRepository
 import com.erpnext.pos.data.repositories.ModeOfPaymentRepository
 import com.erpnext.pos.data.repositories.OpeningEntrySyncRepository
@@ -80,7 +79,6 @@ import com.erpnext.pos.domain.usecases.FetchTerritoriesLocalUseCase
 import com.erpnext.pos.domain.usecases.FetchUserInfoUseCase
 import com.erpnext.pos.domain.usecases.GetCompanyInfoUseCase
 import com.erpnext.pos.domain.usecases.LoadHomeMetricsUseCase
-import com.erpnext.pos.domain.usecases.LoadInventoryAlertsUseCase
 import com.erpnext.pos.domain.usecases.LoadSourceDocumentsUseCase
 import com.erpnext.pos.domain.usecases.LogoutUseCase
 import com.erpnext.pos.domain.usecases.MarkSalesInvoiceSyncedUseCase
@@ -610,7 +608,6 @@ val appModule = module {
         syncPreferences = get(),
         navManager = get(),
         loadHomeMetricsUseCase = get(),
-        loadInventoryAlertsUseCase = get(),
         observeHomeLiveShiftMetricsUseCase = get(),
         posProfileGate = get(),
         openingGate = get(),
@@ -763,8 +760,6 @@ val appModule = module {
   single { PartialReturnUseCase(get(), get(), get(), get(), get(), get()) }
   single { LoadHomeMetricsUseCase(get()) }
   single { ObserveHomeLiveShiftMetricsUseCase(get()) }
-  single { InventoryAlertRepository(get(), get(), get(), get(), get()) }
-  single { LoadInventoryAlertsUseCase(get()) }
   single { GetCompanyInfoUseCase(get()) }
   // endregion
 }

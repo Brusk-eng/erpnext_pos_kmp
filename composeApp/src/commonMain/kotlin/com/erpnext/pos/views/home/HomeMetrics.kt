@@ -6,7 +6,6 @@ data class HomeMetrics(
     val avgTicket: Double = 0.0,
     val customersToday: Int = 0,
     val outstandingTotal: Double = 0.0,
-    val inventoryAlerts: List<InventoryAlert> = emptyList(),
     val currencyMetrics: List<CurrencyHomeMetric> = emptyList(),
 )
 
@@ -18,18 +17,4 @@ data class CurrencyHomeMetric(
     val customersToday: Int,
     val outstandingTotal: Double,
 )
-
-data class InventoryAlert(
-    val itemCode: String,
-    val itemName: String,
-    val qty: Double,
-    val status: InventoryAlertStatus,
-    val reorderLevel: Double?,
-    val reorderQty: Double?,
-)
-
-enum class InventoryAlertStatus {
-  CRITICAL,
-  LOW,
-}
 // 76

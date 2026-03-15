@@ -21,12 +21,6 @@ class SettingsCoordinator(val viewModel: SettingsViewModel) {
 
   fun onCashDrawerEnabledChanged(enabled: Boolean) = viewModel.setCashDrawerEnabled(enabled)
 
-  fun onInventoryAlertsEnabledChanged(enabled: Boolean) =
-      viewModel.setInventoryAlertsEnabled(enabled)
-
-  fun onInventoryAlertTimeChanged(hour: Int, minute: Int) =
-      viewModel.setInventoryAlertTime(hour, minute)
-
   fun onReturnPolicyChanged(settings: ReturnPolicySettings) = viewModel.setReturnPolicy(settings)
 
   fun onSelect(s: String) {}
