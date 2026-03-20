@@ -34,6 +34,9 @@ class AndroidTokenStore(private val context: Context) :
   private val authPrefs: SharedPreferences by lazy {
     context.getSharedPreferences(AUTH_INFO_PREF_FILE, Context.MODE_PRIVATE)
   }
+  private val transientAuthPrefs: SharedPreferences by lazy {
+    context.getSharedPreferences(TRANSIENT_AUTH_PREF_FILE, Context.MODE_PRIVATE)
+  }
 
   // --- SecurePrefs initialization ---
   private val prefs by lazy { buildSecurePrefsWithRecovery() }
@@ -273,33 +276,34 @@ class AndroidTokenStore(private val context: Context) :
   // ------------------------------------------------------------
 
   override suspend fun savePkceVerifier(verifier: String) {
-    prefs.putString("pkce_verifier", verifier)
+    transientAuthPrefs.edit { putString("pkce_verifier", verifier) }
   }
 
-  override suspend fun loadPkceVerifier(): String? = prefs.getString("pkce_verifier")
+  override suspend fun loadPkceVerifier(): String? = transientAuthPrefs.getString("pkce_verifier", null)
 
   override suspend fun clearPkceVerifier() {
-    prefs.remove("pkce_verifier")
+    transientAuthPrefs.edit { remove("pkce_verifier") }
   }
 
   override suspend fun saveState(state: String) {
-    prefs.putString("oauth_state", state)
+    transientAuthPrefs.edit { putString("oauth_state", state) }
   }
 
-  override suspend fun loadState(): String? = prefs.getString("oauth_state")
+  override suspend fun loadState(): String? = transientAuthPrefs.getString("oauth_state", null)
 
   override suspend fun clearState() {
-    prefs.remove("oauth_state")
+    transientAuthPrefs.edit { remove("oauth_state") }
   }
 
   override suspend fun saveRedirectUri(uri: String) {
-    prefs.putString("oauth_redirect_uri", uri)
+    transientAuthPrefs.edit { putString("oauth_redirect_uri", uri) }
   }
 
-  override suspend fun loadRedirectUri(): String? = prefs.getString("oauth_redirect_uri")
+  override suspend fun loadRedirectUri(): String? =
+      transientAuthPrefs.getString("oauth_redirect_uri", null)
 
   override suspend fun clearRedirectUri() {
-    prefs.remove("oauth_redirect_uri")
+    transientAuthPrefs.edit { remove("oauth_redirect_uri") }
   }
 
   // ------------------------------------------------------------
@@ -373,6 +377,7 @@ class AndroidTokenStore(private val context: Context) :
     const val KEYSET_PREF_KEY = "master_keyset"
     const val SECURE_PREF_FILE = "secure_prefs_v2"
     const val AUTH_INFO_PREF_FILE = "auth_info_prefs_v1"
+    const val TRANSIENT_AUTH_PREF_FILE = "transient_auth_prefs_v1"
     const val MASTER_KEY_URI = "android-keystore://master_key"
   }
 }

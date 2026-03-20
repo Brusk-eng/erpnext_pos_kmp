@@ -17,16 +17,15 @@ import com.erpnext.pos.localSource.dao.CustomerOutboxDao
 import com.erpnext.pos.localSource.dao.DeliveryChargeDao
 import com.erpnext.pos.localSource.dao.ExchangeRateDao
 import com.erpnext.pos.localSource.dao.ItemDao
-import com.erpnext.pos.localSource.dao.ItemReorderDao
 import com.erpnext.pos.localSource.dao.ModeOfPaymentDao
 import com.erpnext.pos.localSource.dao.POSClosingEntryDao
 import com.erpnext.pos.localSource.dao.POSOpeningEntryDao
 import com.erpnext.pos.localSource.dao.POSOpeningEntryLinkDao
 import com.erpnext.pos.localSource.dao.POSProfileDao
-import com.erpnext.pos.localSource.dao.PrintJobDao
 import com.erpnext.pos.localSource.dao.PaymentTermDao
 import com.erpnext.pos.localSource.dao.PosProfileLocalDao
 import com.erpnext.pos.localSource.dao.PosProfilePaymentMethodDao
+import com.erpnext.pos.localSource.dao.PrintJobDao
 import com.erpnext.pos.localSource.dao.PrinterProfileDao
 import com.erpnext.pos.localSource.dao.SalesInvoiceDao
 import com.erpnext.pos.localSource.dao.SupplierDao
@@ -46,7 +45,6 @@ import com.erpnext.pos.localSource.entities.CustomerOutboxEntity
 import com.erpnext.pos.localSource.entities.DeliveryChargeEntity
 import com.erpnext.pos.localSource.entities.ExchangeRateEntity
 import com.erpnext.pos.localSource.entities.ItemEntity
-import com.erpnext.pos.localSource.entities.ItemReorderEntity
 import com.erpnext.pos.localSource.entities.ModeOfPaymentEntity
 import com.erpnext.pos.localSource.entities.POSClosingEntryEntity
 import com.erpnext.pos.localSource.entities.POSInvoicePaymentEntity
@@ -54,9 +52,9 @@ import com.erpnext.pos.localSource.entities.POSOpeningEntryEntity
 import com.erpnext.pos.localSource.entities.POSOpeningEntryLinkEntity
 import com.erpnext.pos.localSource.entities.POSProfileEntity
 import com.erpnext.pos.localSource.entities.PaymentTermEntity
-import com.erpnext.pos.localSource.entities.PrintJobEntity
 import com.erpnext.pos.localSource.entities.PosProfileLocalEntity
 import com.erpnext.pos.localSource.entities.PosProfilePaymentMethodEntity
+import com.erpnext.pos.localSource.entities.PrintJobEntity
 import com.erpnext.pos.localSource.entities.PrinterProfileEntity
 import com.erpnext.pos.localSource.entities.SalesInvoiceEntity
 import com.erpnext.pos.localSource.entities.SalesInvoiceItemEntity
@@ -70,7 +68,6 @@ import com.erpnext.pos.localSource.entities.UserEntity
         [
             UserEntity::class,
             ItemEntity::class,
-            ItemReorderEntity::class,
             POSProfileEntity::class,
             PosProfileLocalEntity::class,
             PosProfilePaymentMethodEntity::class,
@@ -101,7 +98,7 @@ import com.erpnext.pos.localSource.entities.UserEntity
             PrinterProfileEntity::class,
             PrintJobEntity::class,
         ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 @ConstructedBy(AppDatabaseConstructor::class)
@@ -109,8 +106,6 @@ abstract class AppDatabase : RoomDatabase() {
   abstract fun userDao(): UserDao
 
   abstract fun itemDao(): ItemDao
-
-  abstract fun itemReorderDao(): ItemReorderDao
 
   abstract fun posProfileDao(): POSProfileDao
 

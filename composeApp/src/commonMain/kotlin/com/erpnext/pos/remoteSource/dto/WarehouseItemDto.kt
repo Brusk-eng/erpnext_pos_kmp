@@ -25,6 +25,4 @@ data class WarehouseItemDto(
     @SerialName("stock_uom") val stockUom: String,
     val brand: String = "",
     val currency: String = "", // Inferido
-    @SerialName("stock_alert_reorder_level") val stockAlertReorderLevel: Double? = null,
-    @SerialName("stock_alert_reorder_qty") val stockAlertReorderQty: Double? = null,
 )

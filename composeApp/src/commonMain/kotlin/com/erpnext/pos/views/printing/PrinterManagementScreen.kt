@@ -82,6 +82,7 @@ fun PrinterManagementScreen(
     onSave: () -> Unit,
     onDelete: () -> Unit,
     onSetDefault: () -> Unit,
+    onCheckConnection: () -> Unit,
     onPrintTest: () -> Unit,
     onClearMessage: () -> Unit,
 ) {
@@ -109,6 +110,7 @@ fun PrinterManagementScreen(
             onSave = onSave,
             onDelete = onDelete,
             onSetDefault = onSetDefault,
+            onCheckConnection = onCheckConnection,
             onPrintTest = onPrintTest,
             onClearMessage = onClearMessage,
         )
@@ -130,6 +132,7 @@ fun PrinterManagementScreen(
               onSave = onSave,
               onDelete = onDelete,
               onSetDefault = onSetDefault,
+              onCheckConnection = onCheckConnection,
               onPrintTest = onPrintTest,
               onClearMessage = onClearMessage,
           )
@@ -275,6 +278,7 @@ private fun EditorPanel(
     onSave: () -> Unit,
     onDelete: () -> Unit,
     onSetDefault: () -> Unit,
+    onCheckConnection: () -> Unit,
     onPrintTest: () -> Unit,
     onClearMessage: () -> Unit,
 ) {
@@ -307,6 +311,20 @@ private fun EditorPanel(
         AssistChip(
             onClick = onSetDefault,
             label = { Text(tr(language, "Definir por defecto", "Set as default")) },
+        )
+        AssistChip(
+            onClick = onCheckConnection,
+            label = {
+              Text(
+                  if (state.isCheckingConnection) {
+                    tr(language, "Verificando...", "Checking...")
+                  } else {
+                    tr(language, "Verificar conexión", "Check connection")
+                  }
+              )
+            },
+            enabled = !state.isCheckingConnection && !state.isBusy,
+            leadingIcon = { Icon(Icons.Outlined.Bluetooth, contentDescription = null) },
         )
         AssistChip(
             onClick = onPrintTest,

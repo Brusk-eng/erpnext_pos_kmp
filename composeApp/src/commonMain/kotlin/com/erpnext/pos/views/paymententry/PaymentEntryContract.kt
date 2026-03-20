@@ -30,7 +30,6 @@ data class PaymentEntryState(
     val referenceDate: String = "",
     val notes: String = "",
     val expenseAccount: String = "",
-    val defaultReceivableAccount: String = "",
     val availableModes: List<String> = emptyList(),
     val accountOptions: List<String> = emptyList(),
     val partyOptions: List<String> = emptyList(),

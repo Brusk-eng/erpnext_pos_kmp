@@ -4,72 +4,17 @@ package com.erpnext.pos.views.settings
 
 import AppColorTheme
 import AppThemeMode
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.animation.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.outlined.TrendingUp
 import androidx.compose.material.icons.automirrored.outlined.Undo
-import androidx.compose.material.icons.outlined.ExpandLess
-import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material.icons.outlined.Print
-import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -87,66 +32,11 @@ import com.erpnext.pos.localization.AppLanguage
 import com.erpnext.pos.localization.LocalAppStrings
 import com.erpnext.pos.sync.SyncState
 import com.erpnext.pos.utils.NetworkMonitor
-import com.erpnext.pos.utils.formatCurrency
 import com.erpnext.pos.utils.toErpDateTime
 import com.erpnext.pos.utils.view.SnackbarController
 import com.erpnext.pos.utils.view.SnackbarPosition
 import com.erpnext.pos.utils.view.SnackbarType
-import kotlin.math.ceil
-import org.jetbrains.compose.ui.tooling.preview.Preview
 import org.koin.compose.koinInject
-
-@Preview(showBackground = true, name = "Settings Screen")
-@Composable
-fun SettingsScreenPreview() {
-  PosSettingsScreen(
-      POSSettingState.Success(
-          settings =
-              POSSettingBO(
-                  company = "Clothing Center",
-                  posProfile = "Main",
-                  openingEntryId = "POS-OPE-2026-00001",
-                  warehouse = "Almacén Principal",
-                  priceList = "Standard Price List",
-                  taxesIncluded = false,
-                  offlineMode = true,
-                  printerEnabled = true,
-                  cashDrawerEnabled = true,
-                  allowNegativeStock = false,
-              ),
-          hasContext = true,
-          syncSettings =
-              SyncSettings(
-                  autoSync = true,
-                  syncOnStartup = true,
-                  wifiOnly = false,
-                  lastSyncAt = null,
-                  useTtl = false,
-                  ttlHours = 6,
-              ),
-          syncState = SyncState.IDLE,
-          language = AppLanguage.Spanish,
-          theme = AppColorTheme.Noir,
-          themeMode = AppThemeMode.System,
-          returnPolicy = com.erpnext.pos.domain.models.ReturnPolicySettings(),
-          inventoryAlertsEnabled = true,
-          inventoryAlertHour = 9,
-          inventoryAlertMinute = 0,
-          salesTargetMonthly = 12000.0,
-          salesTargetWeekly = 2775.0,
-          salesTargetDaily = 400.0,
-          salesTargetBaseCurrency = "USD",
-          salesTargetSecondaryCurrency = "NIO",
-          salesTargetConvertedMonthly = 450000.0,
-          salesTargetConvertedWeekly = 104000.0,
-          salesTargetConvertedDaily = 15000.0,
-          salesTargetConversionStale = false,
-          salesTargetFromContext = true,
-          syncLog = emptyList(),
-      ),
-      POSSettingAction(),
-  )
-}
 
 @Composable
 fun PosSettingsScreen(state: POSSettingState, action: POSSettingAction) {
@@ -164,34 +54,10 @@ fun PosSettingsScreen(state: POSSettingState, action: POSSettingAction) {
     Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState).padding(contentPadding)) {
       when (state) {
         is POSSettingState.Success -> {
-          var showAlertTimeDialog by remember { mutableStateOf(false) }
-          var showSalesTargetDialog by remember { mutableStateOf(false) }
           var showReturnDaysDialog by remember { mutableStateOf(false) }
           var showReturnDestinationDialog by remember { mutableStateOf(false) }
           var showTtlHoursDialog by remember { mutableStateOf(false) }
 
-          if (showAlertTimeDialog) {
-            InventoryAlertTimeDialog(
-                initialHour = state.inventoryAlertHour,
-                initialMinute = state.inventoryAlertMinute,
-                onDismiss = { showAlertTimeDialog = false },
-                onConfirm = { hour, minute ->
-                  showAlertTimeDialog = false
-                  action.onInventoryAlertTimeChanged(hour, minute)
-                },
-            )
-          }
-          if (showSalesTargetDialog && !state.salesTargetFromContext) {
-            SalesTargetDialog(
-                initialValue = state.salesTargetMonthly,
-                baseCurrency = state.salesTargetBaseCurrency,
-                onDismiss = { showSalesTargetDialog = false },
-                onConfirm = { value ->
-                  showSalesTargetDialog = false
-                  action.onSalesTargetChanged(value)
-                },
-            )
-          }
           if (showReturnDaysDialog) {
             ReturnPolicyDaysDialog(
                 initialValue = state.returnPolicy.maxDaysAfterInvoice,
@@ -364,110 +230,6 @@ fun PosSettingsScreen(state: POSSettingState, action: POSSettingAction) {
                 compact = isCompact,
                 showDivider = false,
             )
-          }
-
-          SettingSection(
-              title = strings.settings.inventoryAlertsTitle,
-              description = strings.settings.inventoryAlertsTimeHint,
-              icon = Icons.Outlined.Notifications,
-              compact = isCompact,
-          ) {
-            SettingToggle(
-                label = strings.settings.inventoryAlertsEnabledLabel,
-                checked = state.inventoryAlertsEnabled,
-                onCheckedChange = action.onInventoryAlertsEnabledChanged,
-                compact = isCompact,
-            )
-            SettingItem(
-                label = strings.settings.inventoryAlertsTimeLabel,
-                value = formatTime(state.inventoryAlertHour, state.inventoryAlertMinute),
-                onClick = { showAlertTimeDialog = true },
-                enabled = state.inventoryAlertsEnabled,
-                compact = isCompact,
-                showDivider = false,
-            )
-          }
-
-          ExpandableSection(
-              title = strings.settings.salesTargetTitle,
-              description = strings.settings.salesTargetHint,
-              icon = Icons.AutoMirrored.Outlined.TrendingUp,
-              compact = isCompact,
-              initiallyExpanded = false,
-          ) {
-            if (state.salesTargetFromContext) {
-              SettingItem(
-                  label = "Origen de la meta",
-                  value = "Contexto POS (sync.bootstrap)",
-                  onClick = {},
-                  enabled = false,
-                  compact = isCompact,
-                  showDivider = false,
-              )
-            } else {
-              SettingItem(
-                  label = strings.settings.salesTargetEditLabel,
-                  value = formatCurrency(state.salesTargetBaseCurrency, state.salesTargetMonthly),
-                  onClick = { showSalesTargetDialog = true },
-                  compact = isCompact,
-                  showDivider = false,
-              )
-            }
-            TargetRow(
-                label = strings.settings.salesTargetMonthlyLabel,
-                baseCurrency = state.salesTargetBaseCurrency,
-                baseAmount = state.salesTargetMonthly,
-                secondaryCurrency = state.salesTargetSecondaryCurrency,
-                secondaryAmount = state.salesTargetConvertedMonthly,
-            )
-            TargetRow(
-                label = strings.settings.salesTargetWeeklyLabel,
-                baseCurrency = state.salesTargetBaseCurrency,
-                baseAmount = state.salesTargetWeekly,
-                secondaryCurrency = state.salesTargetSecondaryCurrency,
-                secondaryAmount = state.salesTargetConvertedWeekly,
-            )
-            TargetRow(
-                label = strings.settings.salesTargetDailyLabel,
-                baseCurrency = state.salesTargetBaseCurrency,
-                baseAmount = state.salesTargetDaily,
-                secondaryCurrency = state.salesTargetSecondaryCurrency,
-                secondaryAmount = state.salesTargetConvertedDaily,
-            )
-            if (
-                state.salesTargetSecondaryCurrency != null &&
-                    state.salesTargetConvertedMonthly == null
-            ) {
-              Text(
-                  text = strings.settings.salesTargetConversionMissingHint,
-                  style = MaterialTheme.typography.bodySmall,
-                  color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            } else if (state.salesTargetConversionStale) {
-              Text(
-                  text = strings.settings.salesTargetConversionStaleHint,
-                  style = MaterialTheme.typography.bodySmall,
-                  color = MaterialTheme.colorScheme.tertiary,
-              )
-            }
-            if (state.salesTargetFromContext) {
-              Text(
-                  text = "La meta mensual se obtiene del contexto sincronizado.",
-                  style = MaterialTheme.typography.bodySmall,
-                  color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            } else {
-              Button(
-                  onClick = action.onSyncSalesTarget,
-                  colors =
-                      ButtonDefaults.buttonColors(
-                          containerColor = MaterialTheme.colorScheme.primary
-                      ),
-                  modifier = Modifier.padding(top = if (isCompact) 6.dp else 10.dp),
-              ) {
-                Text(strings.settings.salesTargetSyncLabel)
-              }
-            }
           }
 
           SettingSection(
@@ -930,7 +692,7 @@ private fun SettingToggle(
           onCheckedChange = onCheckedChange,
           enabled = enabled,
           colors =
-              androidx.compose.material3.SwitchDefaults.colors(
+              SwitchDefaults.colors(
                   checkedThumbColor = tokens.accent,
                   uncheckedThumbColor = tokens.titleColor,
               ),
@@ -940,166 +702,6 @@ private fun SettingToggle(
       HorizontalDivider(color = tokens.divider)
     }
   }
-}
-
-@Composable
-private fun InventoryAlertTimeDialog(
-    initialHour: Int,
-    initialMinute: Int,
-    onDismiss: () -> Unit,
-    onConfirm: (Int, Int) -> Unit,
-) {
-  val strings = LocalAppStrings.current
-  var hour by remember { mutableStateOf(initialHour.coerceIn(0, 23)) }
-  var minute by remember { mutableStateOf(initialMinute.coerceIn(0, 59)) }
-  var hourExpanded by remember { mutableStateOf(false) }
-  var minuteExpanded by remember { mutableStateOf(false) }
-
-  AlertDialog(
-      onDismissRequest = onDismiss,
-      title = { Text(strings.settings.inventoryAlertsTimeLabel) },
-      text = {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-          ExposedDropdownMenuBox(
-              expanded = hourExpanded,
-              onExpandedChange = { hourExpanded = !hourExpanded },
-              modifier = Modifier.weight(1f),
-          ) {
-            OutlinedTextField(
-                value = hour.toString().padStart(2, '0'),
-                onValueChange = {},
-                label = { Text("HH") },
-                readOnly = true,
-                trailingIcon = {
-                  ExposedDropdownMenuDefaults.TrailingIcon(expanded = hourExpanded)
-                },
-                colors = ExposedDropdownMenuDefaults.textFieldColors(),
-                modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-            )
-            ExposedDropdownMenu(
-                expanded = hourExpanded,
-                onDismissRequest = { hourExpanded = false },
-            ) {
-              (0..23).forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(option.toString().padStart(2, '0')) },
-                    onClick = {
-                      hour = option
-                      hourExpanded = false
-                    },
-                )
-              }
-            }
-          }
-
-          ExposedDropdownMenuBox(
-              expanded = minuteExpanded,
-              onExpandedChange = { minuteExpanded = !minuteExpanded },
-              modifier = Modifier.weight(1f),
-          ) {
-            OutlinedTextField(
-                value = minute.toString().padStart(2, '0'),
-                onValueChange = {},
-                label = { Text("MM") },
-                readOnly = true,
-                trailingIcon = {
-                  ExposedDropdownMenuDefaults.TrailingIcon(expanded = minuteExpanded)
-                },
-                colors = ExposedDropdownMenuDefaults.textFieldColors(),
-                modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-            )
-            ExposedDropdownMenu(
-                expanded = minuteExpanded,
-                onDismissRequest = { minuteExpanded = false },
-            ) {
-              (0..59).forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(option.toString().padStart(2, '0')) },
-                    onClick = {
-                      minute = option
-                      minuteExpanded = false
-                    },
-                )
-              }
-            }
-          }
-        }
-      },
-      confirmButton = {
-        Button(onClick = { onConfirm(hour, minute) }) {
-          Text(strings.settings.inventoryAlertsTimeSaveLabel)
-        }
-      },
-      dismissButton = {
-        TextButton(onClick = onDismiss) { Text(strings.settings.inventoryAlertsTimeCancelLabel) }
-      },
-  )
-}
-
-private fun formatTime(hour: Int, minute: Int): String =
-    "${hour.coerceIn(0, 23).toString().padStart(2, '0')}:${minute.coerceIn(0, 59).toString().padStart(2, '0')}"
-
-@Composable
-private fun TargetRow(
-    label: String,
-    baseCurrency: String,
-    baseAmount: Double,
-    secondaryCurrency: String?,
-    secondaryAmount: Double?,
-) {
-  val roundedBase = ceil(baseAmount)
-  val roundedSecondary = secondaryAmount?.let { ceil(it) }
-  Column(modifier = Modifier.padding(vertical = 6.dp)) {
-    Text(label, style = MaterialTheme.typography.bodyMedium)
-    Text(
-        text = formatCurrency(baseCurrency, roundedBase),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.primary,
-    )
-    if (secondaryCurrency != null && roundedSecondary != null) {
-      Text(
-          text = formatCurrency(secondaryCurrency, roundedSecondary),
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-    }
-  }
-}
-
-@Composable
-private fun SalesTargetDialog(
-    initialValue: Double,
-    baseCurrency: String,
-    onDismiss: () -> Unit,
-    onConfirm: (Double) -> Unit,
-) {
-  val strings = LocalAppStrings.current
-  var input by remember { mutableStateOf(initialValue.toString()) }
-  AlertDialog(
-      onDismissRequest = onDismiss,
-      title = { Text(strings.settings.salesTargetEditLabel) },
-      text = {
-        OutlinedTextField(
-            value = input,
-            onValueChange = { input = it },
-            label = { Text(baseCurrency) },
-            singleLine = true,
-        )
-      },
-      confirmButton = {
-        Button(
-            onClick = {
-              val value = input.toDoubleOrNull() ?: 0.0
-              onConfirm(value)
-            }
-        ) {
-          Text(strings.settings.inventoryAlertsTimeSaveLabel)
-        }
-      },
-      dismissButton = {
-        TextButton(onClick = onDismiss) { Text(strings.settings.inventoryAlertsTimeCancelLabel) }
-      },
-  )
 }
 
 @Composable
@@ -1127,11 +729,8 @@ private fun TtlHoursDialog(initialValue: Int, onDismiss: () -> Unit, onConfirm: 
               onConfirm(value)
             }
         ) {
-          Text(strings.settings.inventoryAlertsTimeSaveLabel)
+          Text(strings.settings.ttlHoursInputLabel) // TODO: Validate if this is part from StockAlert
         }
-      },
-      dismissButton = {
-        TextButton(onClick = onDismiss) { Text(strings.settings.inventoryAlertsTimeCancelLabel) }
       },
   )
 }
@@ -1591,3 +1190,4 @@ private fun ThemeModeChipSelector(
     }
   }
 }
+// 1384

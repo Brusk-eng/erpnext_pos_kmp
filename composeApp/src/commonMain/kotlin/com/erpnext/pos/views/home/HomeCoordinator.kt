@@ -13,7 +13,6 @@ class HomeCoordinator(val viewModel: HomeViewModel) {
   val homeMetrics = viewModel.homeMetrics
   val openingState = viewModel.openingState
   val openingEntryId = viewModel.openingEntryId
-  val inventoryAlertMessage = viewModel.inventoryAlertMessage
 
   fun loadInitialData() {
     return viewModel.loadInitialData()
@@ -72,10 +71,6 @@ class HomeCoordinator(val viewModel: HomeViewModel) {
 
   fun openCloseCashbox() {
     viewModel.openCloseCashbox()
-  }
-
-  fun consumeInventoryAlertMessage() {
-    viewModel.consumeInventoryAlertMessage()
   }
 }
 

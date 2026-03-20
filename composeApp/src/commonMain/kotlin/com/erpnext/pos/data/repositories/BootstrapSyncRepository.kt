@@ -25,8 +25,6 @@ import com.erpnext.pos.remoteSource.mapper.resolveReceivableAccount
 import com.erpnext.pos.remoteSource.mapper.toEntities
 import com.erpnext.pos.remoteSource.mapper.toEntity
 import com.erpnext.pos.utils.AppLogger
-import kotlin.time.Clock
-import kotlin.time.ExperimentalTime
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -38,6 +36,8 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
 @OptIn(ExperimentalTime::class)
 class BootstrapSyncRepository(
@@ -59,7 +59,6 @@ class BootstrapSyncRepository(
     private val invoiceLocalSource: InvoiceLocalSource,
 ) {
   companion object {
-    private const val KEY_BOOTSTRAP_INVENTORY_ALERTS = "bootstrap.raw.inventory_alerts"
     private const val KEY_BOOTSTRAP_META = "bootstrap.debug.meta"
     private const val KEY_BOOTSTRAP_COUNTS = "bootstrap.debug.counts"
     private const val DEFAULT_PAGE_LIMIT = 50
@@ -97,7 +96,6 @@ class BootstrapSyncRepository(
         label = "Entradas de pago",
         message = "Guardando entradas de pago en facturas...",
     ),
-    INVENTORY_ALERTS(label = "Alertas de Inventario", message = "Guardando snapshot de alertas..."),
     ACTIVITY_EVENTS(label = "Eventos", message = "Eventos via WS (omitido en bootstrap)."),
   }
 
@@ -112,7 +110,6 @@ class BootstrapSyncRepository(
                 includeInventory = false,
                 includeCustomers = false,
                 includeInvoices = false,
-                includeAlerts = false,
                 includeActivity = false,
                 recentPaidOnly = true,
                 profileName = profileName,
@@ -149,7 +146,6 @@ class BootstrapSyncRepository(
                   includeInventory = true,
                   includeCustomers = false,
                   includeInvoices = false,
-                  includeAlerts = false,
                   includeActivity = false,
                   recentPaidOnly = true,
                   profileName = profileName,
@@ -189,7 +185,6 @@ class BootstrapSyncRepository(
                         includeInventory = true,
                         includeCustomers = false,
                         includeInvoices = false,
-                        includeAlerts = false,
                         includeActivity = false,
                         recentPaidOnly = true,
                         profileName = profileName,
@@ -209,7 +204,6 @@ class BootstrapSyncRepository(
                 includeInventory = false,
                 includeCustomers = true,
                 includeInvoices = false,
-                includeAlerts = false,
                 includeActivity = false,
                 recentPaidOnly = true,
                 profileName = profileName,
@@ -231,7 +225,6 @@ class BootstrapSyncRepository(
                       includeInventory = false,
                       includeCustomers = true,
                       includeInvoices = false,
-                      includeAlerts = false,
                       includeActivity = false,
                       recentPaidOnly = true,
                       profileName = profileName,
@@ -248,7 +241,6 @@ class BootstrapSyncRepository(
                 includeInventory = false,
                 includeCustomers = false,
                 includeInvoices = true,
-                includeAlerts = false,
                 includeActivity = false,
                 // Backend currently returns broader invoice coverage with recent_paid_only=true.
                 recentPaidOnly = true,
@@ -271,7 +263,6 @@ class BootstrapSyncRepository(
                       includeInventory = false,
                       includeCustomers = false,
                       includeInvoices = true,
-                      includeAlerts = false,
                       includeActivity = false,
                       recentPaidOnly = true,
                       profileName = profileName,
@@ -294,7 +285,6 @@ class BootstrapSyncRepository(
                       includeInventory = false,
                       includeCustomers = false,
                       includeInvoices = true,
-                      includeAlerts = false,
                       includeActivity = false,
                       recentPaidOnly = true,
                       profileName = profileName,
@@ -304,22 +294,6 @@ class BootstrapSyncRepository(
               )
           api.decodeBootstrapFullSnapshot(pageRaw).paymentEntries
         }
-
-    val alertsRaw =
-        api.getBootstrapRawSnapshot(
-            BootstrapRequestDto(
-                includeInventory = false,
-                includeCustomers = false,
-                includeInvoices = false,
-                includeAlerts = true,
-                includeActivity = false,
-                recentPaidOnly = true,
-                profileName = profileName,
-                offset = 0,
-                limit = DEFAULT_PAGE_LIMIT,
-            )
-        )
-    val allAlerts = api.decodeBootstrapFullSnapshot(alertsRaw).inventoryAlerts
 
     val allInventory = inventoryFetch.items
     val allCustomers = customersFetch.items
@@ -332,7 +306,6 @@ class BootstrapSyncRepository(
             customers = allCustomers,
             invoices = allInvoices,
             paymentEntries = allPaymentEntries,
-            inventoryAlerts = allAlerts,
             activityEvents = emptyList(),
         )
     val normalizedRaw =
@@ -369,7 +342,6 @@ class BootstrapSyncRepository(
                   items = api.json.encodeToJsonElement(mergedData.paymentEntries),
               ),
           )
-          put("inventory_alerts", api.json.encodeToJsonElement(mergedData.inventoryAlerts))
         }
 
     persistBootstrapMeta(
@@ -386,7 +358,6 @@ class BootstrapSyncRepository(
                 "customers" to mergedData.customers.size,
                 "invoices" to mergedData.invoices.size,
                 "payment_entries" to mergedData.paymentEntries.size,
-                "inventory_alerts" to mergedData.inventoryAlerts.size,
             ),
         pagingDebug =
             mapOf(
@@ -677,7 +648,6 @@ class BootstrapSyncRepository(
       Section.CUSTOMERS -> persistCustomers(snapshot)
       Section.INVOICES -> persistInvoices(snapshot)
       Section.PAYMENT_ENTRIES -> persistPaymentEntriesSnapshot(snapshot)
-      Section.INVENTORY_ALERTS -> persistInventoryAlertsSnapshot(snapshot)
       Section.ACTIVITY_EVENTS -> Unit
     }
     AppLogger.info(
@@ -706,7 +676,6 @@ class BootstrapSyncRepository(
             "customers=${data.customers.size}, " +
             "invoices=${data.invoices.size}, " +
             "payment_entries=${data.paymentEntries.size}, " +
-            "inventory_alerts=${data.inventoryAlerts.size}, " +
             "activity_events=${data.activityEvents.size}"
     )
   }
@@ -729,7 +698,6 @@ class BootstrapSyncRepository(
       Section.CUSTOMERS -> data.customers.size
       Section.INVOICES -> data.invoices.size
       Section.PAYMENT_ENTRIES -> data.paymentEntries.size
-      Section.INVENTORY_ALERTS -> data.inventoryAlerts.size
       Section.ACTIVITY_EVENTS -> data.activityEvents.size
     }
   }
@@ -746,11 +714,6 @@ class BootstrapSyncRepository(
 
   private suspend fun persistCompany(snapshot: Snapshot) {
     val companies = snapshot.data.resolvedCompanies
-    if (companies.isEmpty()) {
-      companyDao.softDeleteAll()
-      companyDao.hardDeleteAllDeleted()
-      return
-    }
     companies.forEach { company ->
       val companyName =
           company.resolvedCompanyName?.trim()?.takeIf { it.isNotBlank() } ?: return@forEach
@@ -760,18 +723,9 @@ class BootstrapSyncRepository(
               defaultCurrency = company.defaultCurrency ?: "NIO",
               taxId = company.taxId,
               country = company.country,
-              defaultReceivableAccount = company.defaultReceivableAccount,
-              defaultReceivableAccountCurrency = company.defaultReceivableAccountCurrency,
-              isDeleted = false,
           )
       companyDao.insert(entity)
     }
-    val names =
-        companies
-            .mapNotNull { it.resolvedCompanyName?.trim()?.takeIf { name -> name.isNotBlank() } }
-            .distinct()
-    companyDao.hardDeleteDeletedNotIn(names)
-    companyDao.softDeleteNotIn(names)
   }
 
   private suspend fun persistStockSettings(snapshot: Snapshot) {
@@ -1218,16 +1172,6 @@ class BootstrapSyncRepository(
     return value.booleanOrNull
         ?: value.intOrNull?.let { it != 0 }
         ?: value.contentOrNull?.lowercase()?.let { token -> token in setOf("1", "true", "yes") }
-  }
-
-  private suspend fun persistInventoryAlertsSnapshot(snapshot: Snapshot) {
-    val alerts = api.json.encodeToString(snapshot.data.inventoryAlerts)
-    configurationStore.saveRaw(KEY_BOOTSTRAP_INVENTORY_ALERTS, alerts)
-    savePersistedCount(
-        section = "inventory_alerts",
-        fetched = snapshot.data.inventoryAlerts.size,
-        persisted = snapshot.data.inventoryAlerts.size,
-    )
   }
 
   private suspend fun savePersistedCount(section: String, fetched: Int, persisted: Int) {

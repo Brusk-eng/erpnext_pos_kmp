@@ -25,6 +25,7 @@ fun PrinterManagementRoute(
       onSave = viewModel::saveProfile,
       onDelete = viewModel::deleteSelected,
       onSetDefault = viewModel::setSelectedAsDefault,
+      onCheckConnection = viewModel::checkConnection,
       onPrintTest = viewModel::printTestDocument,
       onClearMessage = viewModel::clearMessage,
   )

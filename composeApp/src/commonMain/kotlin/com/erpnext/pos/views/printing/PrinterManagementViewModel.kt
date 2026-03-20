@@ -18,6 +18,7 @@ import com.erpnext.pos.domain.printing.model.ReceiptTotals
 import com.erpnext.pos.domain.printing.model.TransportType
 import com.erpnext.pos.domain.printing.ports.PrinterDiscoveryService
 import com.erpnext.pos.domain.printing.usecase.DeletePrinterProfileUseCase
+import com.erpnext.pos.domain.printing.usecase.CheckPrinterConnectionUseCase
 import com.erpnext.pos.domain.printing.usecase.PrintDocumentInput
 import com.erpnext.pos.domain.printing.usecase.PrintDocumentUseCase
 import com.erpnext.pos.domain.printing.usecase.SavePrinterProfileUseCase
@@ -27,6 +28,7 @@ import com.erpnext.pos.domain.repositories.printing.IPrinterProfileRepository
 import com.erpnext.pos.domain.printing.platform.PrintingPlatform
 import com.erpnext.pos.localSource.preferences.LanguagePreferences
 import com.erpnext.pos.localization.AppLanguage
+import com.erpnext.pos.printing.application.PrinterConnectionStatusStore
 import com.erpnext.pos.utils.AppLogger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -70,6 +72,7 @@ data class PrinterManagementUiState(
     val discoveredDevices: List<DiscoveredPrinterDevice> = emptyList(),
     val message: String? = null,
     val isBusy: Boolean = false,
+    val isCheckingConnection: Boolean = false,
     val platformSummary: String = "",
 )
 
@@ -79,6 +82,8 @@ class PrinterManagementViewModel(
     private val printJobRepository: IPrintJobRepository,
     private val discoveryService: PrinterDiscoveryService,
     private val printDocumentUseCase: PrintDocumentUseCase,
+    private val checkPrinterConnectionUseCase: CheckPrinterConnectionUseCase,
+    private val printerConnectionStatusStore: PrinterConnectionStatusStore,
     private val savePrinterProfileUseCase: SavePrinterProfileUseCase,
     private val deletePrinterProfileUseCase: DeletePrinterProfileUseCase,
     private val setDefaultPrinterUseCase: SetDefaultPrinterUseCase,
@@ -89,6 +94,7 @@ class PrinterManagementViewModel(
   private val devices = MutableStateFlow<List<DiscoveredPrinterDevice>>(emptyList())
   private val message = MutableStateFlow<String?>(null)
   private val busy = MutableStateFlow(false)
+  private val checkingConnection = MutableStateFlow(false)
 
   private val _uiState = MutableStateFlow(PrinterManagementUiState())
   val uiState: StateFlow<PrinterManagementUiState> = _uiState.asStateFlow()
@@ -104,6 +110,7 @@ class PrinterManagementViewModel(
               devices,
               message,
               busy,
+              checkingConnection,
           ) { args: Array<Any?> ->
             val profiles = args[0] as List<PrinterProfile>
             val jobs = args[1] as List<PrintJob>
@@ -112,6 +119,7 @@ class PrinterManagementViewModel(
             val discovered = args[4] as List<DiscoveredPrinterDevice>
             val toast = args[5] as String?
             val isBusy = args[6] as Boolean
+            val isCheckingConnection = args[7] as Boolean
             val activeProfile = profiles.firstOrNull { it.id == selectedId }
             val defaultProfile = profiles.firstOrNull { it.isDefault }
             PrinterManagementUiState(
@@ -129,6 +137,7 @@ class PrinterManagementViewModel(
                 discoveredDevices = discovered,
                 message = toast,
                 isBusy = isBusy,
+                isCheckingConnection = isCheckingConnection,
                 platformSummary =
                     "Platform ${PrintingPlatform.capabilities.platform} supports ${PrintingPlatform.capabilities.supportedTransports.joinToString()}",
             )
@@ -152,6 +161,7 @@ class PrinterManagementViewModel(
   fun createNew() {
     selection.value = null
     draft.value = PrinterProfileFormState()
+    printerConnectionStatusStore.reset()
     message.value = tr("Creando un nuevo perfil de impresora.", "Creating a new printer profile.")
   }
 
@@ -255,6 +265,7 @@ class PrinterManagementViewModel(
             val savedProfile = profileRepository.getById(profile.id) ?: profile
             selection.value = profile.id
             draft.value = savedProfile.toFormState()
+            printerConnectionStatusStore.reset()
             AppLogger.info(
                 "PrinterManagementViewModel.saveProfile -> saved profile=${savedProfile.name}, default=${savedProfile.isDefault}, preferred=${savedProfile.preferredTransport}"
             )
@@ -290,6 +301,7 @@ class PrinterManagementViewModel(
       busy.value = true
       runCatching {
             deletePrinterProfileUseCase(selectedId)
+            printerConnectionStatusStore.reset()
             AppLogger.info("PrinterManagementViewModel.deleteSelected -> deleted profileId=$selectedId")
             createNew()
             message.value = tr("Perfil de impresora eliminado.", "Printer profile deleted.")
@@ -310,6 +322,7 @@ class PrinterManagementViewModel(
             val profile = profileRepository.getById(selectedId)
             if (profile != null) {
               draft.value = profile.copy(isDefault = true).toFormState()
+              printerConnectionStatusStore.reset()
               AppLogger.info(
                   "PrinterManagementViewModel.setSelectedAsDefault -> default profile=${profile.name}"
               )
@@ -430,6 +443,56 @@ class PrinterManagementViewModel(
                 )
           }
       busy.value = false
+    }
+  }
+
+  fun checkConnection() {
+    viewModelScope.launch {
+      val profile =
+          runCatching {
+                val draftProfile = draft.value.toProfile()
+                validateProfileReadyToPrint(draftProfile)
+                draftProfile
+              }
+              .getOrElse {
+                message.value =
+                    it.message
+                        ?: tr(
+                            "No se pudo preparar el perfil para verificar conexión.",
+                            "Unable to prepare the printer profile for connection check.",
+                        )
+                return@launch
+              }
+
+      checkingConnection.value = true
+      printerConnectionStatusStore.markChecking(profile.id)
+      runCatching {
+            AppLogger.info(
+                "PrinterManagementViewModel.checkConnection -> profile=${profile.name}, preferred=${profile.preferredTransport}"
+            )
+            checkPrinterConnectionUseCase(profile).getOrThrow()
+            printerConnectionStatusStore.markConnected(profile.id)
+            message.value =
+                tr(
+                    "Conexión verificada correctamente con '${profile.name}'.",
+                    "Connection verified successfully with '${profile.name}'.",
+                )
+          }
+          .onFailure {
+            AppLogger.warn(
+                "PrinterManagementViewModel.checkConnection failed",
+                it,
+                reportToSentry = false,
+            )
+            printerConnectionStatusStore.markDisconnected(profile.id)
+            message.value =
+                it.message
+                    ?: tr(
+                        "No se pudo verificar la conexión de la impresora.",
+                        "Unable to verify printer connection.",
+                    )
+          }
+      checkingConnection.value = false
     }
   }
 

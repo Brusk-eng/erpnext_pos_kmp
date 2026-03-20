@@ -13,13 +13,13 @@ import com.erpnext.pos.domain.models.ItemBO
 import com.erpnext.pos.domain.models.POSCurrencyOption
 import com.erpnext.pos.domain.models.POSPaymentModeOption
 import com.erpnext.pos.domain.models.PaymentTermBO
-import com.erpnext.pos.domain.printing.usecase.PrintReceiptInput
-import com.erpnext.pos.domain.printing.usecase.PrintReceiptUseCase
 import com.erpnext.pos.domain.policy.SalesPostingBlockReason
 import com.erpnext.pos.domain.policy.SalesPostingDecision
 import com.erpnext.pos.domain.policy.SalesPostingPolicy
 import com.erpnext.pos.domain.policy.SalesPostingResolution
 import com.erpnext.pos.domain.policy.SalesPostingType
+import com.erpnext.pos.domain.printing.usecase.PrintReceiptInput
+import com.erpnext.pos.domain.printing.usecase.PrintReceiptUseCase
 import com.erpnext.pos.domain.repositories.printing.IPrinterProfileRepository
 import com.erpnext.pos.domain.usecases.AdjustLocalInventoryInput
 import com.erpnext.pos.domain.usecases.AdjustLocalInventoryUseCase
@@ -47,8 +47,8 @@ import com.erpnext.pos.localSource.preferences.LanguagePreferences
 import com.erpnext.pos.localization.AppLanguage
 import com.erpnext.pos.navigation.NavRoute
 import com.erpnext.pos.navigation.NavigationManager
-import com.erpnext.pos.printing.templates.buildBillingSaleReceipt
 import com.erpnext.pos.printing.templates.ReceiptTemplateMetadata
+import com.erpnext.pos.printing.templates.buildBillingSaleReceipt
 import com.erpnext.pos.remoteSource.dto.SalesInvoiceDto
 import com.erpnext.pos.remoteSource.dto.SalesInvoiceItemDto
 import com.erpnext.pos.remoteSource.dto.SalesInvoicePaymentScheduleDto
@@ -73,8 +73,6 @@ import com.erpnext.pos.views.payment.PaymentHandler
 import com.erpnext.pos.views.salesflow.SalesFlowContext
 import com.erpnext.pos.views.salesflow.SalesFlowContextStore
 import com.erpnext.pos.views.salesflow.SalesFlowSource
-import kotlin.time.Clock
-import kotlin.time.ExperimentalTime
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -83,6 +81,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
 private const val PAID_STATUS_TOLERANCE = 0.01
 
@@ -1539,11 +1539,9 @@ class BillingViewModel(
         else null
     val receivableAccount =
         input.customer.receivableAccount?.takeIf { it.isNotBlank() }
-            ?: input.context.defaultReceivableAccount?.takeIf { it.isNotBlank() }
     val partyAccountCurrency =
         input.customer.partyAccountCurrency?.takeIf { it.isNotBlank() }
             ?: input.customer.receivableAccountCurrency?.takeIf { it.isNotBlank() }
-            ?: input.context.defaultReceivableAccountCurrency?.takeIf { it.isNotBlank() }
             ?: input.context.partyAccountCurrency
 
     return SalesInvoiceDto(

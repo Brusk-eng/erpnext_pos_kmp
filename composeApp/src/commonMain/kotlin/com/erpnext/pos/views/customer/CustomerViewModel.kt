@@ -70,18 +70,21 @@ import io.ktor.util.date.getTimeMillis
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.ExperimentalTime
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val REFUND_FUNDS_TOLERANCE = 0.009
 
@@ -239,14 +242,18 @@ class CustomerViewModel(
     viewModelScope.launch {
       returnPolicyPreferences.settings.collect { settings -> _returnPolicy.value = settings }
     }
-    viewModelScope.launch {
+    viewModelScope.launch(Dispatchers.Default) {
       if (!didRebuildSummaries) {
         didRebuildSummaries = true
         runCatching { rebuildCustomerSummariesUseCase(Unit) }
       }
     }
-    combine(searchFlow, stateFlowFilter) { q, s -> q to s }
+    combine(
+            searchFlow.map { it?.trim()?.takeIf { value -> value.isNotEmpty() } },
+            stateFlowFilter,
+        ) { q, s -> q to s }
         .debounce(250)
+        .distinctUntilChanged()
         .onEach { (q, s) -> fetchAllCustomers(q, s) }
         .launchIn(viewModelScope)
 
@@ -255,34 +262,38 @@ class CustomerViewModel(
 
   private fun loadDialogData() {
     viewModelScope.launch {
-      val groups = runCatching { fetchCustomerGroupsUseCase() }.getOrElse { emptyList() }
-      val territories = runCatching { fetchTerritoriesUseCase() }.getOrElse { emptyList() }
-      val paymentTerms = runCatching { fetchPaymentTermsUseCase(null) }.getOrElse { emptyList() }
-      val companies =
-          runCatching {
-                companyDao.getAll().map {
-                  CompanyBO(
-                      company = it.companyName,
-                      defaultCurrency = it.defaultCurrency,
-                      country = it.country,
-                      ruc = it.taxId,
-                  )
-                }
-              }
-              .getOrElse { emptyList() }
+      val dialogData =
+          withContext(Dispatchers.Default) {
+            val groups = runCatching { fetchCustomerGroupsUseCase() }.getOrElse { emptyList() }
+            val territories = runCatching { fetchTerritoriesUseCase() }.getOrElse { emptyList() }
+            val paymentTerms = runCatching { fetchPaymentTermsUseCase(null) }.getOrElse { emptyList() }
+            val companies =
+                runCatching {
+                      companyDao.getAll().map {
+                        CompanyBO(
+                            company = it.companyName,
+                            defaultCurrency = it.defaultCurrency,
+                            country = it.country,
+                            ruc = it.taxId,
+                        )
+                      }
+                    }
+                    .getOrElse { emptyList() }
+            CustomerDialogDataState(
+                customerGroups = groups,
+                territories = territories,
+                paymentTerms = paymentTerms,
+                companies = companies,
+            )
+          }
       _dialogDataState.value =
-          CustomerDialogDataState(
-              customerGroups = groups,
-              territories = territories,
-              paymentTerms = paymentTerms,
-              companies = companies,
-          )
+          dialogData
     }
   }
 
   private fun preloadPaymentState() {
     viewModelScope.launch {
-      val paymentModes = resolvePaymentModesForState()
+      val paymentModes = withContext(Dispatchers.Default) { resolvePaymentModesForState() }
       _paymentState.value =
           buildPaymentState(
               modeTypes = paymentModeDetails,
@@ -293,18 +304,27 @@ class CustomerViewModel(
   }
 
   fun fetchAllCustomers(query: String? = null, state: String? = null) {
-    _stateFlow.value = CustomerState.Loading
+    if (_stateFlow.value !is CustomerState.Success) {
+      _stateFlow.value = CustomerState.Loading
+    }
 
     customersJob?.cancel()
     customersJob =
         executeUseCase(
             action = {
-              // pequeña espera para evitar parpadeos al cambiar filtros
-              delay(120)
-              val input = CustomerQueryInput(query, state)
-              _customersPagingFlow.value = fetchCustomersUseCase.invoke(input)
-              val totalCount = fetchCustomersUseCase.count(input)
-              val pendingCount = fetchCustomersUseCase.countPending(input)
+              val customersResult =
+                  withContext(Dispatchers.Default) {
+                    val input = CustomerQueryInput(query, state)
+                    Triple(
+                        fetchCustomersUseCase.invoke(input),
+                        fetchCustomersUseCase.count(input),
+                        fetchCustomersUseCase.countPending(input),
+                    )
+                  }
+              val pagingFlow = customersResult.first
+              val totalCount = customersResult.second
+              val pendingCount = customersResult.third
+              _customersPagingFlow.value = pagingFlow
               _stateFlow.value =
                   if (totalCount == 0) {
                     CustomerState.Empty

@@ -19,7 +19,6 @@ import com.erpnext.pos.data.repositories.CustomerSyncRepository
 import com.erpnext.pos.data.repositories.DeliveryChargesRepository
 import com.erpnext.pos.data.repositories.ExchangeRateRepository
 import com.erpnext.pos.data.repositories.InternalTransferRepository
-import com.erpnext.pos.data.repositories.InventoryAlertRepository
 import com.erpnext.pos.data.repositories.InventoryRepository
 import com.erpnext.pos.data.repositories.ModeOfPaymentRepository
 import com.erpnext.pos.data.repositories.OpeningEntrySyncRepository
@@ -42,6 +41,7 @@ import com.erpnext.pos.domain.policy.DefaultPolicy
 import com.erpnext.pos.domain.policy.PolicyInput
 import com.erpnext.pos.domain.printing.ports.PrintRenderer
 import com.erpnext.pos.domain.printing.ports.PrinterDiscoveryService
+import com.erpnext.pos.domain.printing.usecase.CheckPrinterConnectionUseCase
 import com.erpnext.pos.domain.printing.usecase.DeletePrinterProfileUseCase
 import com.erpnext.pos.domain.printing.usecase.PrintDocumentUseCase
 import com.erpnext.pos.domain.printing.usecase.PrintReceiptUseCase
@@ -91,7 +91,6 @@ import com.erpnext.pos.domain.usecases.FetchTerritoriesLocalUseCase
 import com.erpnext.pos.domain.usecases.FetchUserInfoUseCase
 import com.erpnext.pos.domain.usecases.GetCompanyInfoUseCase
 import com.erpnext.pos.domain.usecases.LoadHomeMetricsUseCase
-import com.erpnext.pos.domain.usecases.LoadInventoryAlertsUseCase
 import com.erpnext.pos.domain.usecases.LoadSourceDocumentsUseCase
 import com.erpnext.pos.domain.usecases.LogoutUseCase
 import com.erpnext.pos.domain.usecases.MarkSalesInvoiceSyncedUseCase
@@ -135,6 +134,8 @@ import com.erpnext.pos.localSource.preferences.ThemePreferences
 import com.erpnext.pos.localSource.printing.PrintJobLocalDataSource
 import com.erpnext.pos.localSource.printing.PrinterProfileLocalDataSource
 import com.erpnext.pos.printing.application.PrintOrchestrator
+import com.erpnext.pos.printing.application.PrinterConnectionMonitor
+import com.erpnext.pos.printing.application.PrinterConnectionStatusStore
 import com.erpnext.pos.printing.application.PrinterTargetResolver
 import com.erpnext.pos.printing.application.RendererSelector
 import com.erpnext.pos.printing.formatting.ReceiptFormatter
@@ -390,7 +391,7 @@ val appModule = module {
             generalPreferences = get(),
             lifecycleObserver = get(),
         )
-            .apply { start(intervalMinutes = 1) }
+            .apply { start() }
     }
     single {
         PaymentHandler(
@@ -500,6 +501,7 @@ val appModule = module {
             cashBoxManager = get(),
             networkMonitor = get(),
             sessionRefresher = get(),
+            lifecycleObserver = get(),
             syncContextProvider = get(),
             pushSyncManager = get(),
             bootstrapContextPreferences = get(),
@@ -646,7 +648,6 @@ val appModule = module {
             syncPreferences = get(),
             navManager = get(),
             loadHomeMetricsUseCase = get(),
-            loadInventoryAlertsUseCase = get(),
             observeHomeLiveShiftMetricsUseCase = get(),
             posProfileGate = get(),
             openingGate = get(),
@@ -654,7 +655,6 @@ val appModule = module {
             sessionRefresher = get(),
             syncContextProvider = get(),
             generalPreferences = get(),
-            exchangeRateLocalSource = get(),
             bootstrapContextPreferences = get(),
         )
     }
@@ -751,7 +751,7 @@ val appModule = module {
     single { ActivityViewModel(get(), get()) }
     single { ReturnPolicyPreferences(get()) }
     single {
-        SettingsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get())
+        SettingsViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get())
     }
     // endregion
 
@@ -797,8 +797,6 @@ val appModule = module {
     single { PartialReturnUseCase(get(), get(), get(), get(), get(), get()) }
     single { LoadHomeMetricsUseCase(get()) }
     single { ObserveHomeLiveShiftMetricsUseCase(get()) }
-    single { InventoryAlertRepository(get(), get(), get(), get(), get()) }
-    single { LoadInventoryAlertsUseCase(get()) }
     single { GetCompanyInfoUseCase(get()) }
     // endregion
 
@@ -821,7 +819,20 @@ val appModule = module {
         )
     }
     single { PrinterTargetResolver() }
+    single { PrinterConnectionStatusStore() }
+    single(createdAtStart = true) {
+        PrinterConnectionMonitor(
+            scope = get(),
+            profileRepository = get(),
+            generalPreferences = get(),
+            lifecycleObserver = get(),
+            checkPrinterConnectionUseCase = get(),
+            statusStore = get(),
+        )
+            .apply { start() }
+    }
     single { PrintOrchestrator(get(), get(), get()) }
+    single { CheckPrinterConnectionUseCase(get(), get()) }
     single { PrintDocumentUseCase(get(), get()) }
     single { PrintReceiptUseCase(get(), get()) }
     single { SavePrinterProfileUseCase(get()) }
@@ -833,6 +844,8 @@ val appModule = module {
             printJobRepository = get(),
             discoveryService = get<PrinterDiscoveryService>(),
             printDocumentUseCase = get(),
+            checkPrinterConnectionUseCase = get(),
+            printerConnectionStatusStore = get(),
             savePrinterProfileUseCase = get(),
             deletePrinterProfileUseCase = get(),
             setDefaultPrinterUseCase = get(),
