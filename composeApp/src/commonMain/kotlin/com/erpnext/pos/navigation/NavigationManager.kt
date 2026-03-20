@@ -10,7 +10,7 @@ import kotlinx.coroutines.launch
 class NavigationManager(private val coroutineScope: CoroutineScope) {
   private val _navigationEvents =
       MutableSharedFlow<NavRoute>(
-          replay = 1,
+          replay = 0,
           extraBufferCapacity = 1,
           onBufferOverflow = BufferOverflow.DROP_OLDEST,
       )

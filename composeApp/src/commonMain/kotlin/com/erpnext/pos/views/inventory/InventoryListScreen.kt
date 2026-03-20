@@ -12,6 +12,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
@@ -50,7 +52,12 @@ fun InventoryScreen(
         modifier = Modifier.fillMaxSize().padding(innerPadding).pullRefresh(pullRefreshState)
     ) {
       val isDesktop = getPlatformName() == "Desktop"
-      val isWideLayout = maxWidth >= 840.dp || isDesktop
+      val windowInfo = LocalWindowInfo.current
+      val density = LocalDensity.current
+      val windowWidthDp = with(density) { windowInfo.containerSize.width.toDp().value }
+      val windowHeightDp = with(density) { windowInfo.containerSize.height.toDp().value }
+      val isTabletOrDesktop = isDesktop || minOf(windowWidthDp, windowHeightDp) >= 600f
+      val isWideLayout = isTabletOrDesktop
 
       /** 1️⃣ Animación localizada — sin destruir SearchBar ni filtros */
       AnimatedContent(
