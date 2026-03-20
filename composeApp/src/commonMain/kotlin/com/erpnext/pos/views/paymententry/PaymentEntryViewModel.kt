@@ -2,6 +2,9 @@ package com.erpnext.pos.views.paymententry
 
 import androidx.lifecycle.viewModelScope
 import com.erpnext.pos.base.BaseViewModel
+import com.erpnext.pos.domain.printing.usecase.PrintReceiptInput
+import com.erpnext.pos.domain.printing.usecase.PrintReceiptUseCase
+import com.erpnext.pos.domain.repositories.printing.IPrinterProfileRepository
 import com.erpnext.pos.domain.usecases.CreateInternalTransferInput
 import com.erpnext.pos.domain.usecases.CreateInternalTransferUseCase
 import com.erpnext.pos.domain.usecases.CreatePaymentOutInput
@@ -12,17 +15,14 @@ import com.erpnext.pos.domain.usecases.FetchSupplierOutstandingPurchaseInvoicesU
 import com.erpnext.pos.domain.usecases.FetchSuppliersLocalUseCase
 import com.erpnext.pos.domain.usecases.RegisterInvoicePaymentInput
 import com.erpnext.pos.domain.usecases.RegisterInvoicePaymentUseCase
-import com.erpnext.pos.domain.printing.usecase.PrintReceiptInput
-import com.erpnext.pos.domain.printing.usecase.PrintReceiptUseCase
-import com.erpnext.pos.domain.repositories.printing.IPrinterProfileRepository
 import com.erpnext.pos.domain.utils.UUIDGenerator
 import com.erpnext.pos.localSource.preferences.GeneralPreferences
 import com.erpnext.pos.localSource.preferences.LanguagePreferences
 import com.erpnext.pos.localization.AppLanguage
 import com.erpnext.pos.navigation.NavRoute
 import com.erpnext.pos.navigation.NavigationManager
-import com.erpnext.pos.printing.templates.buildPendingInvoicePaymentReceipt
 import com.erpnext.pos.printing.templates.ReceiptTemplateMetadata
+import com.erpnext.pos.printing.templates.buildPendingInvoicePaymentReceipt
 import com.erpnext.pos.remoteSource.dto.InternalTransferCreateDto
 import com.erpnext.pos.remoteSource.dto.PaymentEntryReferenceCreateDto
 import com.erpnext.pos.remoteSource.dto.PaymentOutCreateDto
@@ -31,8 +31,6 @@ import com.erpnext.pos.utils.NetworkMonitor
 import com.erpnext.pos.utils.view.DateTimeProvider
 import com.erpnext.pos.views.CashBoxManager
 import com.erpnext.pos.views.ShiftAccountScope
-import kotlin.time.Clock
-import kotlin.time.ExperimentalTime
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -43,6 +41,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
 @OptIn(ExperimentalTime::class)
 class PaymentEntryViewModel(
@@ -104,12 +104,11 @@ class PaymentEntryViewModel(
   fun resetFormState() {
     val current = _state.value
     resetTypeDrafts()
-    _state.value =
+        _state.value =
         PaymentEntryState(
             entryType = PaymentEntryType.Receive,
             currencyCode = current.currencyCode,
             expenseAccount = current.expenseAccount,
-            defaultReceivableAccount = current.defaultReceivableAccount,
             availableModes = current.availableModes,
             accountOptions = current.accountOptions,
             partyOptions = current.partyOptions,
@@ -188,7 +187,6 @@ class PaymentEntryViewModel(
             it.copy(
                 currencyCode = context?.currency ?: "USD",
                 expenseAccount = context?.expenseAccount.orEmpty(),
-                defaultReceivableAccount = context?.defaultReceivableAccount.orEmpty(),
                 availableModes = modes,
                 accountOptions = accountOptions,
                 partyOptions = parties,

@@ -9,7 +9,6 @@ data class BootstrapRequestDto(
     @SerialName("include_inventory") val includeInventory: Boolean = true,
     @SerialName("include_customers") val includeCustomers: Boolean = true,
     @SerialName("include_invoices") val includeInvoices: Boolean = true,
-    @SerialName("include_alerts") val includeAlerts: Boolean = true,
     @SerialName("include_activity") val includeActivity: Boolean = true,
     @SerialName("recent_paid_only") val recentPaidOnly: Boolean = true,
     @SerialName("profile_name") val profileName: String? = null,
@@ -29,7 +28,6 @@ data class BootstrapDataDto(
     @SerialName("customers") val customers: List<CustomerDto> = emptyList(),
     @SerialName("invoices") val invoices: List<SalesInvoiceDto> = emptyList(),
     @SerialName("payment_entries") val paymentEntries: List<PaymentEntryDto> = emptyList(),
-    @SerialName("inventory_alerts") val inventoryAlerts: List<JsonObject> = emptyList(),
     @SerialName("activity_events") val activityEvents: List<JsonObject> = emptyList(),
 )
 
@@ -76,8 +74,7 @@ data class BootstrapContextDto(
     @SerialName("price_list") val priceListSnake: String? = null,
     @SerialName("currency") val currency: String? = null,
     @SerialName("partyAccountCurrency") val partyAccountCurrencyCamel: String? = null,
-    @SerialName("party_account_currency") val partyAccountCurrencySnake: String? = null,
-    @SerialName("monthly_sales_target") val monthlySalesTarget: Double? = null,
+    @SerialName("party_account_currency") val partyAccountCurrencySnake: String? = null
 ) {
   val profileName: String?
     get() = profileNameCamel ?: profileNameSnake
@@ -122,7 +119,6 @@ data class BootstrapFullSnapshotDto(
     @SerialName("territories") val territories: List<TerritoryDto> = emptyList(),
     @SerialName("categories") val categories: List<CategoryDto> = emptyList(),
     @SerialName("inventory_items") val inventoryItems: List<WarehouseItemDto> = emptyList(),
-    @SerialName("inventory_alerts") val inventoryAlerts: List<JsonObject> = emptyList(),
     @SerialName("customers") val customers: List<CustomerDto> = emptyList(),
     @SerialName("invoices") val invoices: List<SalesInvoiceDto> = emptyList(),
     @SerialName("payment_entries") val paymentEntries: List<PaymentEntryDto> = emptyList(),
