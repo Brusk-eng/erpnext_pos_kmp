@@ -43,6 +43,7 @@ import com.erpnext.pos.domain.policy.PolicyInput
 import com.erpnext.pos.domain.printing.ports.PrintRenderer
 import com.erpnext.pos.domain.printing.ports.PrinterDiscoveryService
 import com.erpnext.pos.domain.printing.usecase.DeletePrinterProfileUseCase
+import com.erpnext.pos.domain.printing.usecase.CheckPrinterConnectionUseCase
 import com.erpnext.pos.domain.printing.usecase.PrintDocumentUseCase
 import com.erpnext.pos.domain.printing.usecase.PrintReceiptUseCase
 import com.erpnext.pos.domain.printing.usecase.SavePrinterProfileUseCase
@@ -136,6 +137,8 @@ import com.erpnext.pos.localSource.printing.PrintJobLocalDataSource
 import com.erpnext.pos.localSource.printing.PrinterProfileLocalDataSource
 import com.erpnext.pos.printing.application.PrintOrchestrator
 import com.erpnext.pos.printing.application.PrinterTargetResolver
+import com.erpnext.pos.printing.application.PrinterConnectionStatusStore
+import com.erpnext.pos.printing.application.PrinterConnectionMonitor
 import com.erpnext.pos.printing.application.RendererSelector
 import com.erpnext.pos.printing.formatting.ReceiptFormatter
 import com.erpnext.pos.printing.renderer.escpos.EscPosRenderer
@@ -822,7 +825,20 @@ val appModule = module {
         )
     }
     single { PrinterTargetResolver() }
+    single { PrinterConnectionStatusStore() }
+    single(createdAtStart = true) {
+        PrinterConnectionMonitor(
+            scope = get(),
+            profileRepository = get(),
+            generalPreferences = get(),
+            lifecycleObserver = get(),
+            checkPrinterConnectionUseCase = get(),
+            statusStore = get(),
+        )
+            .apply { start() }
+    }
     single { PrintOrchestrator(get(), get(), get()) }
+    single { CheckPrinterConnectionUseCase(get(), get()) }
     single { PrintDocumentUseCase(get(), get()) }
     single { PrintReceiptUseCase(get(), get()) }
     single { SavePrinterProfileUseCase(get()) }
@@ -834,6 +850,8 @@ val appModule = module {
             printJobRepository = get(),
             discoveryService = get<PrinterDiscoveryService>(),
             printDocumentUseCase = get(),
+            checkPrinterConnectionUseCase = get(),
+            printerConnectionStatusStore = get(),
             savePrinterProfileUseCase = get(),
             deletePrinterProfileUseCase = get(),
             setDefaultPrinterUseCase = get(),

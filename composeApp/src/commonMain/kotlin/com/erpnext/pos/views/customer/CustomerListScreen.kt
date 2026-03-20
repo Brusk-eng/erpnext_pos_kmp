@@ -178,6 +178,7 @@ import com.erpnext.pos.views.billing.AppTextField
 import com.erpnext.pos.views.billing.MoneyTextField
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
@@ -231,8 +232,6 @@ fun CustomerListScreen(
         merged.ifEmpty { listOf(posCurrency) }
       }
   val customersPagingItems = customersPagingFlow.collectAsLazyPagingItems()
-  val outstandingInvoicesPagingItems = outstandingInvoicesPagingFlow.collectAsLazyPagingItems()
-  val historyInvoicesPagingItems = historyInvoicesPagingFlow.collectAsLazyPagingItems()
   var baseCounts by remember { mutableStateOf(CustomerCounts(0, 0)) }
   val isDesktop = getPlatformName() == "Desktop"
   val customerListState = rememberLazyListState()
@@ -452,9 +451,9 @@ fun CustomerListScreen(
                           onTabChange = { rightPanelTab = it },
                           paymentState = paymentState,
                           invoicesState = invoicesState,
-                          outstandingInvoicesPagingItems = outstandingInvoicesPagingItems,
+                          outstandingInvoicesPagingFlow = outstandingInvoicesPagingFlow,
                           historyState = historyState,
-                          historyInvoicesPagingItems = historyInvoicesPagingItems,
+                          historyInvoicesPagingFlow = historyInvoicesPagingFlow,
                           historyMessage = historyMessage,
                           returnInfoMessage = returnInfoMessage,
                           historyBusy = historyBusy,
@@ -551,9 +550,9 @@ fun CustomerListScreen(
           rightPanelTab = rightPanelTab,
           paymentState = paymentState,
           invoicesState = invoicesState,
-          outstandingInvoicesPagingItems = outstandingInvoicesPagingItems,
+          outstandingInvoicesPagingFlow = outstandingInvoicesPagingFlow,
           historyState = historyState,
-          historyInvoicesPagingItems = historyInvoicesPagingItems,
+          historyInvoicesPagingFlow = historyInvoicesPagingFlow,
           historyMessage = historyMessage,
           returnInfoMessage = returnInfoMessage,
           historyBusy = historyBusy,
@@ -629,7 +628,7 @@ fun CustomerListScreen(
       CustomerOutstandingInvoicesSheet(
           customer = customer,
           invoicesState = invoicesState,
-          outstandingInvoicesPagingItems = outstandingInvoicesPagingItems,
+          outstandingInvoicesPagingFlow = outstandingInvoicesPagingFlow,
           paymentState = paymentState,
           onDismiss = {
             outstandingCustomer = null
@@ -653,7 +652,7 @@ fun CustomerListScreen(
       CustomerInvoiceHistorySheet(
           customer = customer,
           historyState = historyState,
-          historyInvoicesPagingItems = historyInvoicesPagingItems,
+          historyInvoicesPagingFlow = historyInvoicesPagingFlow,
           historyMessage = historyMessage,
           historyBusy = historyBusy,
           paymentState = paymentState,
@@ -769,6 +768,21 @@ private fun CustomerFilters(
     onStateChange: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+  var localSearchQuery by rememberSaveable { mutableStateOf(searchQuery) }
+
+  LaunchedEffect(searchQuery) {
+    if (searchQuery != localSearchQuery) {
+      localSearchQuery = searchQuery
+    }
+  }
+
+  LaunchedEffect(localSearchQuery) {
+    delay(250)
+    if (localSearchQuery != searchQuery) {
+      onQueryChange(localSearchQuery)
+    }
+  }
+
   Column(modifier = modifier) {
     if (isWideLayout) {
       Row(
@@ -810,8 +824,8 @@ private fun CustomerFilters(
         }
 
         SearchTextField(
-            searchQuery = searchQuery,
-            onSearchQueryChange = onQueryChange,
+            searchQuery = localSearchQuery,
+            onSearchQueryChange = { localSearchQuery = it },
             placeholderText = "Buscar cliente por nombre o teléfono...",
             modifier = Modifier.weight(1.2f),
         )
@@ -857,8 +871,8 @@ private fun CustomerFilters(
       Spacer(modifier = Modifier.height(8.dp))
 
       SearchTextField(
-          searchQuery = searchQuery,
-          onSearchQueryChange = onQueryChange,
+          searchQuery = localSearchQuery,
+          onSearchQueryChange = { localSearchQuery = it },
           placeholderText = "Buscar cliente por nombre o teléfono...",
       )
     }
@@ -950,6 +964,10 @@ private fun CustomerListContent(
     onQuickAction: (CustomerBO, CustomerQuickActionType) -> Unit,
 ) {
   val spacing = if (isWideLayout) 16.dp else 12.dp
+  val companyCurr = normalizeCurrency(companyCurrency)
+  val posCurr = normalizeCurrency(posCurrency)
+  val contextExchangeRate =
+      remember(cashboxManager) { cashboxManager.getContext()?.exchangeRate }
   LazyColumn(
       modifier = Modifier.fillMaxSize(),
       state = listState,
@@ -963,13 +981,13 @@ private fun CustomerListContent(
       val customer = customers[index] ?: return@items
       CustomerItem(
           customer = customer,
-          posCurrency = posCurrency,
-          companyCurrency = companyCurrency,
+          posCurrency = posCurr,
+          companyCurrency = companyCurr,
+          contextExchangeRate = contextExchangeRate,
           isDesktop = isDesktop,
           onSelect = onSelect,
           onOpenQuickActions = { onOpenQuickActions(customer) },
           onQuickAction = { actionType -> onQuickAction(customer, actionType) },
-          cashboxManager = cashboxManager,
       )
     }
     if (customers.loadState.append is LoadState.Loading) {
@@ -1153,9 +1171,9 @@ private fun CustomerRightPanel(
     onTabChange: (CustomerPanelTab) -> Unit,
     paymentState: CustomerPaymentState,
     invoicesState: CustomerInvoicesState,
-    outstandingInvoicesPagingItems: androidx.paging.compose.LazyPagingItems<SalesInvoiceBO>,
+    outstandingInvoicesPagingFlow: Flow<PagingData<SalesInvoiceBO>>,
     historyState: CustomerInvoiceHistoryState,
-    historyInvoicesPagingItems: androidx.paging.compose.LazyPagingItems<SalesInvoiceBO>,
+    historyInvoicesPagingFlow: Flow<PagingData<SalesInvoiceBO>>,
     historyMessage: String?,
     returnInfoMessage: String?,
     historyBusy: Boolean,
@@ -1259,6 +1277,8 @@ private fun CustomerRightPanel(
 
         CustomerPanelTab.Pending -> {
           if (customer != null) {
+            val outstandingInvoicesPagingItems =
+                outstandingInvoicesPagingFlow.collectAsLazyPagingItems()
             CustomerOutstandingInvoicesContent(
                 customer = customer,
                 invoicesState = invoicesState,
@@ -1279,6 +1299,7 @@ private fun CustomerRightPanel(
 
         CustomerPanelTab.History -> {
           if (customer != null) {
+            val historyInvoicesPagingItems = historyInvoicesPagingFlow.collectAsLazyPagingItems()
             CustomerInvoiceHistoryContent(
                 customer = customer,
                 historyState = historyState,
@@ -2374,7 +2395,7 @@ fun CustomerItem(
     customer: CustomerBO,
     posCurrency: String,
     companyCurrency: String,
-    cashboxManager: CashBoxManager,
+    contextExchangeRate: Double?,
     isDesktop: Boolean,
     onSelect: (CustomerBO) -> Unit,
     onOpenQuickActions: () -> Unit,
@@ -2389,22 +2410,16 @@ fun CustomerItem(
   val companyCurr = normalizeCurrency(companyCurrency)
   val posCurr = normalizeCurrency(posCurrency)
   val pendingCompany = bd(customer.totalPendingAmount ?: customer.currentBalance ?: 0.0).toDouble(2)
-  var pendingPos by remember { mutableStateOf<Double?>(null) }
-  LaunchedEffect(pendingCompany, companyCurr, posCurr) {
-    pendingPos =
-        if (posCurr.equals(companyCurr, ignoreCase = true)) {
-          pendingCompany
-        } else {
-          resolveCompanyToTargetAmount(
-              amountCompany = pendingCompany,
-              companyCurrency = companyCurr,
-              targetCurrency = posCurr,
-              rateResolver = { from, to ->
-                cashboxManager.resolveExchangeRateBetween(from, to, allowNetwork = false)
-              },
-          )
+  val pendingPos =
+      remember(pendingCompany, companyCurr, posCurr, contextExchangeRate) {
+        when {
+          posCurr.equals(companyCurr, ignoreCase = true) -> pendingCompany
+          contextExchangeRate == null || contextExchangeRate <= 0.0 -> null
+          companyCurr.equals("USD", ignoreCase = true) -> pendingCompany * contextExchangeRate
+          posCurr.equals("USD", ignoreCase = true) -> pendingCompany / contextExchangeRate
+          else -> null
         }
-  }
+      }
   val statusLabel =
       when {
         isOverLimit -> strings.customer.overdueLabel
@@ -2557,9 +2572,9 @@ fun CustomerItem(
                   if (emphasis) MaterialTheme.colorScheme.error
                   else MaterialTheme.colorScheme.onSurface,
           )
-          if (pendingPos != null && !posCurr.equals(companyCurr, ignoreCase = true)) {
-            Text(
-                text = formatCurrency(companyCurr, pendingCompany),
+        if (pendingPos != null && !posCurr.equals(companyCurr, ignoreCase = true)) {
+          Text(
+              text = formatCurrency(companyCurr, pendingCompany),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -2662,9 +2677,9 @@ private fun CustomerMobileDetailSheet(
     rightPanelTab: CustomerPanelTab,
     paymentState: CustomerPaymentState,
     invoicesState: CustomerInvoicesState,
-    outstandingInvoicesPagingItems: androidx.paging.compose.LazyPagingItems<SalesInvoiceBO>,
+    outstandingInvoicesPagingFlow: Flow<PagingData<SalesInvoiceBO>>,
     historyState: CustomerInvoiceHistoryState,
-    historyInvoicesPagingItems: androidx.paging.compose.LazyPagingItems<SalesInvoiceBO>,
+    historyInvoicesPagingFlow: Flow<PagingData<SalesInvoiceBO>>,
     historyMessage: String?,
     returnInfoMessage: String?,
     historyBusy: Boolean,
@@ -2721,9 +2736,9 @@ private fun CustomerMobileDetailSheet(
           onTabChange = onTabChange,
           paymentState = paymentState,
           invoicesState = invoicesState,
-          outstandingInvoicesPagingItems = outstandingInvoicesPagingItems,
+          outstandingInvoicesPagingFlow = outstandingInvoicesPagingFlow,
           historyState = historyState,
-          historyInvoicesPagingItems = historyInvoicesPagingItems,
+          historyInvoicesPagingFlow = historyInvoicesPagingFlow,
           historyMessage = historyMessage,
           returnInfoMessage = returnInfoMessage,
           historyBusy = historyBusy,
@@ -2790,7 +2805,7 @@ private fun CustomerQuickActionsSheet(
 private fun CustomerOutstandingInvoicesSheet(
     customer: CustomerBO,
     invoicesState: CustomerInvoicesState,
-    outstandingInvoicesPagingItems: androidx.paging.compose.LazyPagingItems<SalesInvoiceBO>,
+    outstandingInvoicesPagingFlow: Flow<PagingData<SalesInvoiceBO>>,
     paymentState: CustomerPaymentState,
     onDismiss: () -> Unit,
     onRegisterPayment:
@@ -2803,6 +2818,7 @@ private fun CustomerOutstandingInvoicesSheet(
         ) -> Unit,
     onDownloadInvoicePdf: (String, InvoicePdfActionOption) -> Unit,
 ) {
+  val outstandingInvoicesPagingItems = outstandingInvoicesPagingFlow.collectAsLazyPagingItems()
   ModalBottomSheet(
       onDismissRequest = onDismiss,
       dragHandle = { BottomSheetDefaults.DragHandle() },
@@ -3327,7 +3343,7 @@ private fun CustomerOutstandingInvoicesContent(
 private fun CustomerInvoiceHistorySheet(
     customer: CustomerBO,
     historyState: CustomerInvoiceHistoryState,
-    historyInvoicesPagingItems: androidx.paging.compose.LazyPagingItems<SalesInvoiceBO>,
+    historyInvoicesPagingFlow: Flow<PagingData<SalesInvoiceBO>>,
     historyMessage: String?,
     historyBusy: Boolean,
     paymentState: CustomerPaymentState,
@@ -3359,6 +3375,7 @@ private fun CustomerInvoiceHistorySheet(
         { _, _, _, _, _, _, _ ->
         },
 ) {
+  val historyInvoicesPagingItems = historyInvoicesPagingFlow.collectAsLazyPagingItems()
   var returnInvoiceId by remember { mutableStateOf<String?>(null) }
   var returnInvoiceLocal by remember { mutableStateOf<SalesInvoiceWithItemsAndPayments?>(null) }
   var returnLoading by remember { mutableStateOf(false) }

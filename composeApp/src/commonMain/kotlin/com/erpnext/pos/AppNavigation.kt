@@ -81,6 +81,7 @@ import coil3.request.crossfade
 import com.erpnext.pos.NavGraph.Setup
 import com.erpnext.pos.base.getPlatformName
 import com.erpnext.pos.domain.usecases.LogoutUseCase
+import com.erpnext.pos.domain.repositories.printing.IPrinterProfileRepository
 import com.erpnext.pos.localSource.dao.CompanyDao
 import com.erpnext.pos.localSource.dao.UserDao
 import com.erpnext.pos.localSource.preferences.GeneralPreferences
@@ -102,6 +103,8 @@ import com.erpnext.pos.navigation.TopBarController
 import com.erpnext.pos.navigation.formatShiftDuration
 import com.erpnext.pos.remoteSource.oauth.AuthInfoStore
 import com.erpnext.pos.remoteSource.oauth.TokenStore
+import com.erpnext.pos.printing.application.PrinterConnectionStatus
+import com.erpnext.pos.printing.application.PrinterConnectionStatusStore
 import com.erpnext.pos.sync.SyncManager
 import com.erpnext.pos.sync.SyncState
 import com.erpnext.pos.utils.AppLogger
@@ -228,6 +231,8 @@ fun AppNavigation() {
   val inventoryRefreshController = koinInject<InventoryRefreshController>()
   val billingResetController = koinInject<BillingResetController>()
   val logoutUseCase = koinInject<LogoutUseCase>()
+  val printerProfileRepository = koinInject<IPrinterProfileRepository>()
+  val printerConnectionStatusStore = koinInject<PrinterConnectionStatusStore>()
   val tokenStore = koinInject<TokenStore>()
   val authInfoStore = koinInject<AuthInfoStore>()
   val companyDao = koinInject<CompanyDao>()
@@ -250,6 +255,8 @@ fun AppNavigation() {
   val isOnline by networkMonitor.isConnected.collectAsState(false)
   val activityBadgeCount by activityCenter.unreadCount.collectAsState(0)
   val printerEnabled by generalPreferences.printerEnabled.collectAsState(true)
+  val defaultPrinterProfile by printerProfileRepository.observeDefaultProfile().collectAsState(initial = null)
+  val printerConnectionSnapshot by printerConnectionStatusStore.snapshot.collectAsState()
   val posContext by cashBoxManager.contextFlow.collectAsState(null)
   val tokenSnapshot by tokenStore.tokensFlow().collectAsState(initial = null)
   val isCashboxOpen by cashBoxManager.cashboxState.collectAsState()
@@ -378,6 +385,12 @@ fun AppNavigation() {
       }
   val cashierImageUrl = cashier?.image?.trim()?.takeIf { it.isNotBlank() } ?: localUserImage
   val showPrinterAction = printerEnabled
+  val printerConnectionStatus =
+      when {
+        defaultPrinterProfile == null -> PrinterConnectionStatus.UNKNOWN
+        printerConnectionSnapshot.profileId == defaultPrinterProfile?.id -> printerConnectionSnapshot.status
+        else -> PrinterConnectionStatus.UNKNOWN
+      }
 
   AppTheme(theme = appTheme, themeMode = appThemeMode) {
     ProvideAppStrings {
@@ -552,6 +565,26 @@ fun AppNavigation() {
                       val showNewSale =
                           (currentRoute == NavRoute.Billing.path ||
                               currentRoute == NavRoute.Billing.path) && !subtitle.isNullOrBlank()
+                      val printerTint =
+                          when (printerConnectionStatus) {
+                            PrinterConnectionStatus.CONNECTED -> Color(0xFF2E7D32)
+                            PrinterConnectionStatus.DISCONNECTED -> MaterialTheme.colorScheme.error
+                            PrinterConnectionStatus.CHECKING -> Color(0xFFF59E0B)
+                            PrinterConnectionStatus.UNKNOWN ->
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                          }
+                      val printerLabel =
+                          when (printerConnectionStatus) {
+                            PrinterConnectionStatus.CONNECTED -> strings.common.printerConnected
+                            PrinterConnectionStatus.DISCONNECTED -> strings.common.printerDisconnected
+                            PrinterConnectionStatus.CHECKING -> strings.common.printerPrinting
+                            PrinterConnectionStatus.UNKNOWN ->
+                                if (defaultPrinterProfile != null) {
+                                  strings.common.printerDisconnected
+                                } else {
+                                  strings.navigation.printers
+                                }
+                          }
                       if (isPhoneCompact) {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -569,6 +602,21 @@ fun AppNavigation() {
                             ) {
                               Icon(imageVector = Icons.Outlined.Add, contentDescription = null)
                             }
+                          }
+                          StatusIconButton(
+                              label =
+                                  if (isOnline) strings.common.internetConnected
+                                  else strings.common.internetDisconnected,
+                              onClick = {},
+                              enabled = false,
+                              tint =
+                                  if (isOnline) Color(0xFF2E7D32)
+                                  else MaterialTheme.colorScheme.error,
+                          ) {
+                            Icon(
+                                if (isOnline) Icons.Outlined.Wifi else Icons.Outlined.WifiOff,
+                                contentDescription = null,
+                            )
                           }
                           StatusIconButton(
                               label = dbLabel,
@@ -593,11 +641,15 @@ fun AppNavigation() {
                           }
                           if (showPrinterAction) {
                             StatusIconButton(
-                                label = strings.settings.printerEnabledLabel,
-                                onClick = { navController.navigateSingle(NavRoute.Settings.path) },
-                                tint = MaterialTheme.colorScheme.primary,
+                                label = printerLabel,
+                                onClick = { navController.navigateSingle(NavRoute.Printers.path) },
+                                tint = printerTint,
                             ) {
-                              Icon(Icons.Outlined.Print, contentDescription = null)
+                              if (printerConnectionStatus == PrinterConnectionStatus.CHECKING) {
+                                CircularProgressIndicator(Modifier.size(18.dp))
+                              } else {
+                                Icon(Icons.Outlined.Print, contentDescription = null)
+                              }
                             }
                           }
                         }
@@ -657,11 +709,15 @@ fun AppNavigation() {
                           }
                           if (showPrinterAction) {
                             StatusIconButton(
-                                label = strings.settings.printerEnabledLabel,
-                                onClick = { navController.navigateSingle(NavRoute.Settings.path) },
-                                tint = MaterialTheme.colorScheme.primary,
+                                label = printerLabel,
+                                onClick = { navController.navigateSingle(NavRoute.Printers.path) },
+                                tint = printerTint,
                             ) {
-                              Icon(Icons.Outlined.Print, contentDescription = null)
+                              if (printerConnectionStatus == PrinterConnectionStatus.CHECKING) {
+                                CircularProgressIndicator(Modifier.size(18.dp))
+                              } else {
+                                Icon(Icons.Outlined.Print, contentDescription = null)
+                              }
                             }
                           }
                           StatusIconButton(
@@ -1059,6 +1115,8 @@ fun AppNavigation() {
                       is NavRoute.Reconciliation -> navController.navigateSingle(event.path)
 
                       is NavRoute.Settings -> navController.navigateTopLevel(NavRoute.Settings.path)
+
+                      is NavRoute.Printers -> navController.navigateSingle(NavRoute.Printers.path)
 
                       is NavRoute.Activity -> navController.navigateSingle(NavRoute.Activity.path)
 
