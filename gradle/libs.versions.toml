@@ -17,6 +17,8 @@ google-services = "4.4.4"
 composeHotReload = "1.0.0"
 composeMultiplatform = "1.10.2"
 composeNagivation = "2.9.2"
+compose-material3 = "1.10.0-alpha05"
+compose-material-icons-extended = "1.7.3"
 
 kotlinxDatetime = "0.7.1-0.6.x-compat"
 logbackClassic = "1.5.32"
@@ -37,7 +39,7 @@ sqlite = "2.6.2"
 konfig = "0.17.1"
 sqldelight = "2.3.1"
 spotless = "8.3.0"
-detekt = "1.23.8"
+detekt = "2.0.0-alpha.2"
 
 coil3 = "3.4.0"
 
@@ -49,6 +51,14 @@ workRuntimeKtxVersion = "2.11.1"
 [libraries]
 androidx-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 androidx-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "composeMultiplatform" }
+compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "composeMultiplatform" }
+compose-material3-common = { module = "org.jetbrains.compose.material3:material3", version.ref = "compose-material3" }
+compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "composeMultiplatform" }
+compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "composeMultiplatform" }
+compose-components-ui-tooling-preview = { module = "org.jetbrains.compose.components:components-ui-tooling-preview", version.ref = "composeMultiplatform" }
+compose-ui-tooling-preview = { module = "org.jetbrains.compose.ui:ui-tooling-preview", version.ref = "composeMultiplatform" }
+compose-material-icons-extended = { module = "org.jetbrains.compose.material:material-icons-extended", version.ref = "compose-material-icons-extended" }
 bignum = { module = "com.ionspin.kotlin:bignum", version.ref = "bignum" }
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebase-bom" }
 firebase-analytics = { group = "com.google.firebase", name = "firebase-analytics", version.ref = "firebase-analytics" }
@@ -138,7 +148,7 @@ androidx-room = { id = "androidx.room", version.ref = "room" }
 
 build-konfig = { id = "com.codingfeline.buildkonfig", version.ref = "konfig" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
-detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
+detekt = { id = "dev.detekt", version.ref = "detekt" }
 
 [bundles]
 coil = [

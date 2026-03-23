@@ -1,7 +1,7 @@
 import com.codingfeline.buildkonfig.compiler.FieldSpec.Type.STRING
-import io.gitlab.arturbosch.detekt.Detekt
 import java.io.FileInputStream
 import java.util.Properties
+import dev.detekt.gradle.Detekt
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -63,7 +63,7 @@ kotlin {
 
   room { schemaDirectory("$projectDir/schemas") }
 
-  androidLibrary {
+  android {
     namespace = "com.erpnext.pos.shared"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
     minSdk = libs.versions.android.minSdk.get().toInt()
@@ -99,13 +99,13 @@ kotlin {
 
       implementation(libs.androidx.paging.compose)
 
-      implementation(compose.runtime)
-      implementation(compose.foundation)
-      implementation(compose.material3)
-      implementation(compose.ui)
-      implementation(compose.components.resources)
-      implementation(compose.components.uiToolingPreview)
-      implementation(compose.materialIconsExtended)
+      implementation(libs.compose.runtime)
+      implementation(libs.compose.foundation)
+      implementation(libs.compose.material3.common)
+      implementation(libs.compose.ui)
+      implementation(libs.compose.components.resources)
+      implementation(libs.compose.components.ui.tooling.preview)
+      implementation(libs.compose.material.icons.extended)
 
       implementation(libs.androidx.datastore)
       implementation(libs.androidx.datastore.preferences)
@@ -142,7 +142,7 @@ kotlin {
       implementation(libs.androidx.ui.tooling)
       implementation(libs.androidx.ui.tooling.preview)
       implementation(libs.sqldelight.android)
-      implementation(compose.preview)
+      implementation(libs.compose.ui.tooling.preview)
       implementation(libs.androidx.activity.compose)
 
       implementation(libs.kotlinx.coroutines.core)
@@ -281,11 +281,11 @@ detekt {
 }
 
 tasks.withType<Detekt>().configureEach {
-  jvmTarget = "11"
+  jvmTarget.set("11")
   reports {
+    checkstyle.required.set(true)
     html.required.set(true)
     sarif.required.set(true)
-    xml.required.set(true)
-    txt.required.set(false)
+    markdown.required.set(false)
   }
 }

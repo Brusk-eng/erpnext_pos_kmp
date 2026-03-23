@@ -213,7 +213,7 @@ class LoginViewModel(
           } else {
             AppLogger.info("LoginViewModel.onSiteSelected -> auth code received")
             handedOffToCodeExchange = true
-            onAuthCodeReceived(code)
+            onAuthCodeReceived(code, request.state)
           }
         }
       } catch (e: CancellationException) {

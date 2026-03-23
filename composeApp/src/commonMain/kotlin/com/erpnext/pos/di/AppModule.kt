@@ -4,6 +4,10 @@ package com.erpnext.pos.di
 
 import com.erpnext.pos.auth.AppLifecycleObserver
 import com.erpnext.pos.auth.AuthFlowState
+import com.erpnext.pos.auth.SessionContextProvider
+import com.erpnext.pos.auth.SessionExecutor
+import com.erpnext.pos.auth.SessionInvalidator
+import com.erpnext.pos.auth.SessionPolicy
 import com.erpnext.pos.auth.SessionRefresher
 import com.erpnext.pos.auth.TokenHeartbeat
 import com.erpnext.pos.data.AppDatabase
@@ -133,6 +137,8 @@ import com.erpnext.pos.localSource.preferences.SyncPreferences
 import com.erpnext.pos.localSource.preferences.ThemePreferences
 import com.erpnext.pos.localSource.printing.PrintJobLocalDataSource
 import com.erpnext.pos.localSource.printing.PrinterProfileLocalDataSource
+import com.erpnext.pos.navigation.NavigationManager
+import com.erpnext.pos.navigation.NavigationManagerHolder
 import com.erpnext.pos.printing.application.PrintOrchestrator
 import com.erpnext.pos.printing.application.PrinterConnectionMonitor
 import com.erpnext.pos.printing.application.PrinterConnectionStatusStore
@@ -205,6 +211,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.serialization.json.Json
 import org.koin.core.context.startKoin
 import org.koin.core.module.Module
@@ -371,15 +378,51 @@ val appModule = module {
     single { AuthFlowState() }
 
     single<CoroutineScope> { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
-    single { com.erpnext.pos.navigation.NavigationManagerHolder.instance }
+    single<NavigationManager> { NavigationManagerHolder.instance }
+    single { AuthFlowState() }
+    single { Mutex() }
+
     single {
-        SessionRefresher(
+        SessionContextProvider(
+            authFlowState = get(),
+            networkMonitor = get(),
             tokenStore = get(),
             apiService = get(),
+            refreshThresholdSeconds = refreshThresholdSeconds,
+        )
+    }
+
+    single {
+        SessionPolicy(
+            isIdTokenValid = TokenUtils::isValid
+        )
+    }
+
+    single {
+        SessionInvalidator(
+            tokenStore = get(),
             navigationManager = get(),
-            networkMonitor = get(),
-            cashBoxManager = lazy { get<CashBoxManager>() },
-            authFlowState = get(),
+            onInvalidated = {
+                AppLogger.warn("Global session invalidation executed")
+            }
+        )
+    }
+
+    single {
+        SessionExecutor(
+            apiService = get(),
+            tokenStore = get(),
+            invalidator = get(),
+            isIdTokenValid = TokenUtils::isValid,
+        )
+    }
+
+    single {
+        SessionRefresher(
+            mutex = get(),
+            contextProvider = get(),
+            policy = get(),
+            executor = get(),
         )
     }
     single { AppLifecycleObserver() }

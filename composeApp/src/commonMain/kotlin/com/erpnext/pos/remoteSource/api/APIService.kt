@@ -433,8 +433,8 @@ class APIService(
     val issuer =
         TokenUtils.decodePayload(idToken ?: "")?.get("iss")?.toString()?.trim()?.takeIf {
           it.isNotBlank()
-        }
-    val site = authStore.getCurrentSite()?.trim()?.takeIf { it.isNotBlank() }
+        }?.trimEnd('/')?.lowercase()
+    val site = authStore.getCurrentSite()?.trim()?.takeIf { it.isNotBlank() }?.lowercase()
     return issuer to site
   }
 
