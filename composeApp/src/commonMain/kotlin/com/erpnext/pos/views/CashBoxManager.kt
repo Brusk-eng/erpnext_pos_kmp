@@ -188,7 +188,7 @@ class CashBoxManager(
         val canValidateRemoteShift = canUseRemoteOperations()
         val user =
             resolveCurrentUser(canUseRemote = canValidateRemoteShift) ?: return@withContext null
-        val serverUser = resolveServerUserId(user)
+        val serverUser = user.resolveServerUserId()
         openingEntrySyncRepository.repairActiveOpenings()
         val company = companyDao.getCompanyInfo()
         val activeProfile = profileDao.getActiveProfile()
@@ -450,7 +450,7 @@ class CashBoxManager(
           return@withContext null
         }
         val user = resolveCurrentUser(canUseRemote = isOnline) ?: return@withContext null
-        val serverUser = resolveServerUserId(user)
+        val serverUser = user.resolveServerUserId()
         val existing = findActiveCashboxForProfile(serverUser, entry.name)
         if (existing != null) {
           if (isOnline && allowRemoteReadsFromUi) {
@@ -471,35 +471,14 @@ class CashBoxManager(
           profileDao.updateProfileState(user.username, entry.name, true)
           val company = companyDao.getCompanyInfo()
           val profile = profileDao.getPOSProfile(entry.name)
-          val exchangeRate = resolveExchangeRate(profile.currency)
-          val allowedCurrencies = resolveSupportedCurrencies(profile.profileName, profile.currency)
-          val paymentModes = resolvePaymentModes(profile.profileName)
-
           _cashboxState.update { true }
           currentContext =
-              POSContext(
-                  username = user.username ?: user.name,
-                  profileName = entry.name,
-                  company = company?.companyName ?: profile.company,
-                  companyCurrency = company?.defaultCurrency ?: profile.currency,
-                  allowNegativeStock = generalPreferences.allowNegativeStock.firstOrNull() == true,
-                  warehouse = profile.warehouse,
-                  route = profile.route,
-                  territory = profile.route,
-                  priceList = profile.sellingPriceList,
-                  isCashBoxOpen = true,
+              createContext(
+                  user = user,
+                  profile = profile,
+                  company = company,
                   cashboxId = existing.cashbox.localId,
-                  incomeAccount = profile.incomeAccount,
-                  expenseAccount = profile.expenseAccount,
-                  branch = profile.branch,
-                  applyDiscountOn = profile.applyDiscountOn,
-                  currency = profile.currency,
-                  exchangeRate = exchangeRate,
-                  allowedCurrencies = allowedCurrencies,
-                  paymentModes = paymentModes,
-                  allowPartialPayment = profile.allowPartialPayment,
-                  cashier = user.toBO(),
-                  partyAccountCurrency = company?.defaultCurrency ?: profile.currency,
+                  isCashBoxOpen = true,
               )
           _contextFlow.value = currentContext
           updateBootstrapContext(serverUser, currentContext)
@@ -586,33 +565,13 @@ class CashBoxManager(
 
         _cashboxState.update { true }
 
-        val exchangeRate = resolveExchangeRate(profile.currency)
-        val allowedCurrencies = resolveSupportedCurrencies(profile.profileName, profile.currency)
-        val paymentModes = resolvePaymentModes(profile.profileName)
         currentContext =
-            POSContext(
-                username = user.username ?: user.name,
-                profileName = entry.name,
-                company = company?.companyName ?: profile.company,
-                companyCurrency = company?.defaultCurrency ?: profile.currency,
-                allowNegativeStock = generalPreferences.allowNegativeStock.firstOrNull() == true,
-                warehouse = profile.warehouse,
-                route = profile.route,
-                territory = profile.route,
-                priceList = profile.sellingPriceList,
-                isCashBoxOpen = true,
+            createContext(
+                user = user,
+                profile = profile,
+                company = company,
                 cashboxId = cashboxId,
-                incomeAccount = profile.incomeAccount,
-                expenseAccount = profile.expenseAccount,
-                branch = profile.branch,
-                applyDiscountOn = profile.applyDiscountOn,
-                currency = profile.currency,
-                exchangeRate = exchangeRate,
-                allowedCurrencies = allowedCurrencies,
-                paymentModes = paymentModes,
-                allowPartialPayment = profile.allowPartialPayment,
-                cashier = user.toBO(),
-                partyAccountCurrency = profile.currency,
+                isCashBoxOpen = true,
             )
         _contextFlow.value = currentContext
         updateBootstrapContext(serverUser, currentContext)
@@ -747,7 +706,7 @@ class CashBoxManager(
 
   private fun isShiftOwnedByUser(shiftUser: String?, user: UserEntity): Boolean {
     val remote = shiftUser?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: return true
-    val canonical = resolveServerUserId(user).trim().lowercase()
+    val canonical = user.resolveServerUserId().trim().lowercase()
     return remote == canonical
   }
 
@@ -767,13 +726,6 @@ class CashBoxManager(
     return local
   }
 
-  private fun resolveServerUserId(user: UserEntity): String {
-    return user.name
-        .trim()
-        .ifBlank { user.username?.trim().orEmpty() }
-        .ifBlank { user.email.trim() }
-  }
-
   private suspend fun findActiveCashboxForProfile(
       userId: String,
       profileName: String,
@@ -791,10 +743,7 @@ class CashBoxManager(
       user: UserEntity,
       preferred: CashboxWithDetails? = null,
   ) {
-    val ownedByUser =
-        listOf(resolveServerUserId(user), user.name, user.username, user.email)
-            .mapNotNull { candidate -> candidate?.trim()?.lowercase()?.takeIf { it.isNotBlank() } }
-            .toSet()
+    val ownedByUser = user.ownedIdentifiers()
     val active =
         cashboxDao
             .getActiveCashboxes()
@@ -842,10 +791,7 @@ class CashBoxManager(
         "applyBootstrapClosingForUser: closing=${closing.name} profile=$closingProfile " +
             "opening=${closing.posOpeningEntry} user=${closing.user}"
     )
-    val ownedByUser =
-        listOf(resolveServerUserId(user), user.name, user.username, user.email)
-            .mapNotNull { candidate -> candidate?.trim()?.lowercase()?.takeIf { it.isNotBlank() } }
-            .toSet()
+    val ownedByUser = user.ownedIdentifiers()
     val activePool = cashboxDao.getActiveCashboxes()
     val allActive =
         activePool
@@ -884,7 +830,7 @@ class CashBoxManager(
                       ?: preferred?.cashbox?.company.orEmpty(),
               periodStartDate = closing.periodStartDate ?: endDate,
               periodEndDate = endDate,
-              user = closing.user?.takeIf { it.isNotBlank() } ?: resolveServerUserId(user),
+              user = closing.user?.takeIf { it.isNotBlank() } ?: user.resolveServerUserId(),
               status = false,
               pendingSync = false,
           )
@@ -1019,7 +965,7 @@ class CashBoxManager(
             company = closing.company?.takeIf { it.isNotBlank() } ?: cashbox.company,
             periodStartDate = closing.periodStartDate ?: cashbox.periodStartDate,
             postingDate = closing.periodStartDate ?: cashbox.periodStartDate,
-            user = closing.user?.takeIf { it.isNotBlank() } ?: resolveServerUserId(user),
+            user = closing.user?.takeIf { it.isNotBlank() } ?: user.resolveServerUserId(),
             pendingSync = false,
         )
     )
@@ -1096,6 +1042,22 @@ class CashBoxManager(
       cashboxId: Long,
       company: CompanyEntity?,
   ): POSContext {
+    return createContext(
+        user = user,
+        profile = profile,
+        company = company,
+        cashboxId = cashboxId,
+        isCashBoxOpen = true,
+    )
+  }
+
+  private suspend fun createContext(
+      user: UserEntity,
+      profile: com.erpnext.pos.localSource.entities.POSProfileEntity,
+      company: CompanyEntity?,
+      cashboxId: Long?,
+      isCashBoxOpen: Boolean,
+  ): POSContext {
     val exchangeRate = resolveExchangeRate(profile.currency)
     val allowedCurrencies = resolveSupportedCurrencies(profile.profileName, profile.currency)
     val paymentModes = resolvePaymentModes(profile.profileName)
@@ -1110,7 +1072,7 @@ class CashBoxManager(
         route = profile.route,
         territory = profile.route,
         priceList = profile.sellingPriceList,
-        isCashBoxOpen = true,
+        isCashBoxOpen = isCashBoxOpen,
         cashboxId = cashboxId,
         incomeAccount = profile.incomeAccount,
         expenseAccount = profile.expenseAccount,
@@ -1129,7 +1091,7 @@ class CashBoxManager(
       user: UserEntity,
       profileName: String,
   ): POSOpeningEntrySummaryDto? {
-    val userId = resolveServerUserId(user).trim()
+    val userId = user.resolveServerUserId().trim()
     if (userId.isBlank()) return null
     return runCatching { posOpeningRepository.getOpenSession(userId, profileName) }
         .onFailure {
@@ -1153,7 +1115,7 @@ class CashBoxManager(
         val user = resolveCurrentUser(canUseRemote = canUseRemote) ?: return@withContext null
 
         val entry =
-            findActiveCashboxForProfile(resolveServerUserId(user), ctx.profileName)
+            findActiveCashboxForProfile(user.resolveServerUserId(), ctx.profileName)
                 ?: return@withContext null
         val endMillis = getTimeMillis()
         val startMillis = parseErpDateTimeToEpochMillis(entry.cashbox.periodStartDate) ?: endMillis
@@ -1237,12 +1199,12 @@ class CashBoxManager(
           }
         }
         val modeCurrency =
-            runCatching { paymentMethodLocalRepository.getMethodsForProfile(ctx.profileName) }
-                .getOrElse { emptyList() }
-                .associate { method ->
-                  val currency = normalizeCurrency(method.currency ?: ctx.currency)
-                  method.mopName to currency
-                }
+            buildModeCurrencyMap(
+                methods =
+                    runCatching { paymentMethodLocalRepository.getMethodsForProfile(ctx.profileName) }
+                        .getOrElse { emptyList() },
+                fallbackCurrency = ctx.currency,
+            )
         val movementAdjustments = buildMovementAdjustmentsByMode(openingEntryId)
         val paymentReconciliation =
             buildPaymentReconciliationSeeds(
@@ -1281,7 +1243,7 @@ class CashBoxManager(
             }
         val closingEntryId =
             pce?.name
-                ?: buildLocalClosingEntryId(ctx.profileName, resolveServerUserId(user), endMillis)
+                ?: buildLocalClosingEntryId(ctx.profileName, user.resolveServerUserId(), endMillis)
         val pendingSync = pce == null
 
         cashboxDao.updateStatus(
@@ -1412,7 +1374,7 @@ class CashBoxManager(
             }
 
         val user = resolveCurrentUser(canUseRemote = false) ?: return@withContext null
-        val serverUser = resolveServerUserId(user).trim()
+        val serverUser = user.resolveServerUserId().trim()
         if (serverUser.isBlank()) return@withContext null
 
         val bootstrapSnapshot = bootstrapContextPreferences.load()
@@ -1429,34 +1391,13 @@ class CashBoxManager(
         val activeCashbox =
             findActiveCashboxForProfile(serverUser, profile.profileName)
                 ?: findActiveCashboxForUser(serverUser)
-        val exchangeRate = resolveExchangeRate(profile.currency)
-        val allowedCurrencies = resolveSupportedCurrencies(profile.profileName, profile.currency)
-        val paymentModes = resolvePaymentModes(profile.profileName)
-
         val fallbackContext =
-            POSContext(
-                cashier = user.toBO(),
-                username = user.username ?: user.name,
-                profileName = profile.profileName,
-                company = company?.companyName ?: profile.company,
-                companyCurrency = company?.defaultCurrency ?: profile.currency,
-                allowNegativeStock = generalPreferences.allowNegativeStock.firstOrNull() == true,
-                warehouse = profile.warehouse,
-                route = profile.route,
-                territory = profile.route,
-                priceList = profile.sellingPriceList,
-                isCashBoxOpen = activeCashbox?.cashbox?.status == true,
+            createContext(
+                user = user,
+                profile = profile,
+                company = company,
                 cashboxId = activeCashbox?.cashbox?.localId,
-                incomeAccount = profile.incomeAccount,
-                expenseAccount = profile.expenseAccount,
-                branch = profile.branch,
-                applyDiscountOn = profile.applyDiscountOn,
-                currency = profile.currency,
-                partyAccountCurrency = company?.defaultCurrency ?: profile.currency,
-                exchangeRate = exchangeRate,
-                allowedCurrencies = allowedCurrencies,
-                paymentModes = paymentModes,
-                allowPartialPayment = profile.allowPartialPayment,
+                isCashBoxOpen = activeCashbox?.cashbox?.status == true,
             )
 
         currentContext = fallbackContext
@@ -1491,7 +1432,7 @@ class CashBoxManager(
       emit(null)
       return@flow
     }
-    val userId = resolveServerUserId(user)
+    val userId = user.resolveServerUserId()
     if (userId.isBlank()) {
       emit(null)
       return@flow
@@ -1510,7 +1451,7 @@ class CashBoxManager(
       emit(null)
       return@flow
     }
-    val userId = resolveServerUserId(user)
+    val userId = user.resolveServerUserId()
     if (userId.isBlank()) {
       emit(null)
       return@flow
@@ -1522,7 +1463,7 @@ class CashBoxManager(
       withContext(Dispatchers.IO) {
         val ctx = currentContext ?: initializeContext() ?: return@withContext null
         val user = resolveCurrentUser(canUseRemote = false) ?: return@withContext null
-        findActiveCashboxForProfile(resolveServerUserId(user), ctx.profileName)
+        findActiveCashboxForProfile(user.resolveServerUserId(), ctx.profileName)
       }
 
   suspend fun resolveOpeningEntryForReporting(): String? =
@@ -1561,12 +1502,8 @@ class CashBoxManager(
             link?.localOpeningEntryName,
             bootstrapOpening,
         )
-        .mapNotNull(::normalizeOpeningEntryId)
+        .mapNotNull { it.normalizeOpeningEntryId() }
         .distinct()
-  }
-
-  private fun normalizeOpeningEntryId(value: String?): String? {
-    return value?.trim()?.takeIf { it.isNotBlank() }
   }
 
   private data class OpeningEntryScore(
@@ -1600,18 +1537,6 @@ class CashBoxManager(
     return distinct.ifEmpty {
       listOf(POSCurrencyOption(code = normalizedBase, name = normalizedBase))
     }
-  }
-
-  private fun buildLocalOpeningEntryId(profileName: String, userId: String, now: Long): String {
-    val normalizedProfile = profileName.trim().uppercase().take(12)
-    val normalizedUser = userId.substringBefore('@').uppercase().take(8)
-    return "LOCAL-OPEN-$normalizedProfile-$normalizedUser-$now"
-  }
-
-  private fun buildLocalClosingEntryId(profileName: String, userId: String, now: Long): String {
-    val normalizedProfile = profileName.trim().uppercase().take(12)
-    val normalizedUser = userId.substringBefore('@').uppercase().take(8)
-    return "LOCAL-CLOSE-$normalizedProfile-$normalizedUser-$now"
   }
 
   private suspend fun resolvePaymentModes(profileName: String): List<POSPaymentModeOption> {
@@ -1980,16 +1905,6 @@ class CashBoxManager(
         }
       }
 
-  private fun resolveModeCurrency(modeOfPayment: String, context: POSContext): String {
-    val fromContext =
-        context.paymentModes
-            .firstOrNull { it.modeOfPayment.equals(modeOfPayment, ignoreCase = true) }
-            ?.currency
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-    return normalizeCurrency(fromContext ?: context.currency)
-  }
-
   private suspend fun recordShiftMovement(
       openingEntry: String,
       profileName: String,
@@ -2022,12 +1937,12 @@ class CashBoxManager(
   ): Map<String, Double> {
     val (invoices, paymentRows) = resolveShiftFinancialRows(ctx, activeCashbox)
     val modeCurrency =
-        runCatching { paymentMethodLocalRepository.getMethodsForProfile(ctx.profileName) }
-            .getOrElse { emptyList() }
-            .associate { method ->
-              val currency = normalizeCurrency(method.currency ?: ctx.currency)
-              method.mopName to currency
-            }
+        buildModeCurrencyMap(
+            methods =
+                runCatching { paymentMethodLocalRepository.getMethodsForProfile(ctx.profileName) }
+                    .getOrElse { emptyList() },
+            fallbackCurrency = ctx.currency,
+        )
     val movementAdjustments =
         activeCashbox.cashbox.openingEntryId
             ?.takeIf { it.isNotBlank() }
@@ -2059,16 +1974,7 @@ class CashBoxManager(
     movements.forEach { movement ->
       val mode = movement.modeOfPayment.trim()
       if (mode.isBlank()) return@forEach
-      val signedAmount =
-          when (movement.movementType) {
-            ShiftMovementType.INTERNAL_TRANSFER_IN,
-            ShiftMovementType.CASH_IN -> movement.amount
-            ShiftMovementType.INTERNAL_TRANSFER_OUT,
-            ShiftMovementType.CASH_OUT,
-            ShiftMovementType.EXPENSE,
-            ShiftMovementType.REFUND -> -movement.amount
-            ShiftMovementType.COLLECTION -> 0.0
-          }
+      val signedAmount = signedShiftMovementAmount(movement)
       adjustments[mode] = roundMoney((adjustments[mode] ?: 0.0) + signedAmount)
     }
     return adjustments
@@ -2119,8 +2025,6 @@ class CashBoxManager(
 
     return invoices to paymentRows
   }
-
-  private fun roundMoney(value: Double): Double = kotlin.math.round(value * 100.0) / 100.0
 
   suspend fun resolveExchangeRateBetween(
       fromCurrency: String,

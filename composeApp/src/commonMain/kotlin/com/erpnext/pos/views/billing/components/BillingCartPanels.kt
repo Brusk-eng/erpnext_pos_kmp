@@ -46,7 +46,6 @@ import com.erpnext.pos.domain.models.ItemBO
 import com.erpnext.pos.localization.LocalAppStrings
 import com.erpnext.pos.views.billing.BillingAction
 import com.erpnext.pos.views.billing.BillingState
-import com.erpnext.pos.views.billing.CartItem
 import com.erpnext.pos.views.billing.CustomerSelector
 import com.erpnext.pos.views.billing.LabCartHeader
 import com.erpnext.pos.views.billing.LabCartItem

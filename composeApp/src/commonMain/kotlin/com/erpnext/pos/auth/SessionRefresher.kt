@@ -8,11 +8,13 @@ import com.erpnext.pos.remoteSource.oauth.isRefreshTokenRejected
 import com.erpnext.pos.utils.AppLogger
 import com.erpnext.pos.utils.AppSentry
 import com.erpnext.pos.utils.NetworkMonitor
+import com.erpnext.pos.utils.TokenUtils
 import com.erpnext.pos.views.CashBoxManager
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.concurrent.Volatile
+import kotlin.time.Clock
 
 /**
  * Contexto consolidado de sesión.
@@ -65,6 +67,7 @@ class SessionContextProvider(
     private val apiService: APIService,
     private val refreshThresholdSeconds: Long,
 ) {
+    //TODO  codex resume 019d1c01-c6f6-7592-b348-6e0a54620111
     suspend fun build(): SessionContext {
         val authInProgress = authFlowState?.inProgress?.value == true
         val isOnline = networkMonitor.isConnected.first()
@@ -80,7 +83,7 @@ class SessionContextProvider(
                     !accessToken.isNullOrBlank() ||
                     !refreshToken.isNullOrBlank()
 
-        val secondsLeft = 4600L //secondsToExpiry(idToken)
+        val secondsLeft = secondsToExpiry(idToken)
         val isNearExpiry = secondsLeft != null && secondsLeft <= refreshThresholdSeconds
 
         val issuerMatchesCurrentSite =
@@ -322,6 +325,14 @@ class SessionRefresher(
         }
 }
 
+private fun secondsToExpiry(idToken: String?): Long? {
+    if(idToken.isNullOrBlank()) return null
+
+    val claims = TokenUtils.decodePayload(idToken) ?: return null
+    val exp = claims["exp"]?.toString()?.toLongOrNull() ?: return null
+    val now = Clock.System.now().epochSeconds
+    return exp - now
+}
 /**
  * Helper de logs para no imprimir tokens completos.
  */

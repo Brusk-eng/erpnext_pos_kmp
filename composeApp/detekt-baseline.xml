@@ -752,15 +752,10 @@
     <ID>UnusedParameter:SalesInvoiceRemoteSource.kt$SalesInvoiceRemoteSource$name: String</ID>
     <ID>UnusedParameter:SettingsCoordinator.kt$SettingsCoordinator$s: String</ID>
     <ID>UnusedPrivateClass:ERPResponse.kt$ERPResponse&lt;T&gt;</ID>
-    <ID>UnusedPrivateMember:CashboxOpeningScreen.kt$private fun formatMoney(amount: Double): String</ID>
-    <ID>UnusedPrivateMember:CustomerListScreen.kt$private fun filterPendingInvoices(invoices: List&lt;SalesInvoiceBO&gt;): List&lt;SalesInvoiceBO&gt;</ID>
     <ID>UnusedPrivateMember:CustomerViewModel.kt$CustomerViewModel$private fun isWithinDays(postingDate: String?, days: Int): Boolean</ID>
-    <ID>UnusedPrivateMember:PaymentEntryScreen.kt$@Composable private fun HeaderCard(entryType: PaymentEntryType)</ID>
     <ID>UnusedPrivateMember:PaymentEntryScreen.kt$@Preview(showBackground = true) @Composable private fun PaymentEntryScreenPreview()</ID>
-    <ID>UnusedPrivateMember:roundToCurrency.kt$private fun roundUpToScale(value: Double, scale: Int): Double</ID>
     <ID>UnusedPrivateProperty:CashboxLocalSource.kt$CashboxLocalSource$private val closingDao: POSClosingEntryDao</ID>
     <ID>UnusedPrivateProperty:CashboxLocalSource.kt$CashboxLocalSource$private val openingDao: POSOpeningEntryDao</ID>
-    <ID>UnusedPrivateProperty:CashboxOpeningScreen.kt$val duplicateCashCurrencies = cashMethodsByCurrency.filterValues { it.size &gt; 1 }.keys.toList()</ID>
     <ID>UnusedPrivateProperty:Formatters.kt$val isWhole = abs(rounded2 - rounded0) &lt; 0.005</ID>
     <ID>UnusedPrivateProperty:InventoryAlertRepository.kt$InventoryAlertRepository$private val apiService: APIService</ID>
     <ID>UnusedPrivateProperty:InventoryAlertRepository.kt$InventoryAlertRepository$private val networkMonitor: NetworkMonitor</ID>

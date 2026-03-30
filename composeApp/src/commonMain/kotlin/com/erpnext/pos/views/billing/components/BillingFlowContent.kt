@@ -1,11 +1,11 @@
 package com.erpnext.pos.views.billing.components
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.paging.PagingData
+import com.erpnext.pos.domain.models.ItemBO
 import com.erpnext.pos.localization.LocalAppStrings
 import com.erpnext.pos.utils.view.SnackbarController
 import com.erpnext.pos.utils.view.SnackbarPosition
@@ -65,12 +66,11 @@ internal enum class BillingCheckoutStep {
 internal fun BillingScreenScaffold(
     state: BillingState,
     step: BillingCheckoutStep,
-    productsPagingFlow: Flow<PagingData<com.erpnext.pos.domain.models.ItemBO>>,
+    productsPagingFlow: Flow<PagingData<ItemBO>>,
     action: BillingAction,
     snackbar: SnackbarController,
     globalBusy: Boolean,
     onCheckoutRequested: () -> Unit,
-    onStepChange: (BillingCheckoutStep) -> Unit,
 ) {
   val strings = LocalAppStrings.current
   val colors = MaterialTheme.colorScheme

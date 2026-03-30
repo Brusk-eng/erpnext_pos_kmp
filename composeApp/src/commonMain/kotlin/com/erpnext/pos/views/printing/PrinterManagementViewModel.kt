@@ -3,29 +3,20 @@ package com.erpnext.pos.views.printing
 import androidx.lifecycle.viewModelScope
 import com.erpnext.pos.base.BaseViewModel
 import com.erpnext.pos.domain.printing.model.DiscoveredPrinterDevice
-import com.erpnext.pos.domain.printing.model.LabelDocument
-import com.erpnext.pos.domain.printing.model.LabelField
-import com.erpnext.pos.domain.printing.model.PrintAlignment
 import com.erpnext.pos.domain.printing.model.PrintJob
-import com.erpnext.pos.domain.printing.model.PrinterCapabilities
 import com.erpnext.pos.domain.printing.model.PrinterFamily
 import com.erpnext.pos.domain.printing.model.PrinterLanguage
 import com.erpnext.pos.domain.printing.model.PrinterProfile
-import com.erpnext.pos.domain.printing.model.ReceiptDocument
-import com.erpnext.pos.domain.printing.model.ReceiptLine
-import com.erpnext.pos.domain.printing.model.ReceiptSection
-import com.erpnext.pos.domain.printing.model.ReceiptTotals
 import com.erpnext.pos.domain.printing.model.TransportType
 import com.erpnext.pos.domain.printing.ports.PrinterDiscoveryService
-import com.erpnext.pos.domain.printing.usecase.DeletePrinterProfileUseCase
 import com.erpnext.pos.domain.printing.usecase.CheckPrinterConnectionUseCase
+import com.erpnext.pos.domain.printing.usecase.DeletePrinterProfileUseCase
 import com.erpnext.pos.domain.printing.usecase.PrintDocumentInput
 import com.erpnext.pos.domain.printing.usecase.PrintDocumentUseCase
 import com.erpnext.pos.domain.printing.usecase.SavePrinterProfileUseCase
 import com.erpnext.pos.domain.printing.usecase.SetDefaultPrinterUseCase
 import com.erpnext.pos.domain.repositories.printing.IPrintJobRepository
 import com.erpnext.pos.domain.repositories.printing.IPrinterProfileRepository
-import com.erpnext.pos.domain.printing.platform.PrintingPlatform
 import com.erpnext.pos.localSource.preferences.LanguagePreferences
 import com.erpnext.pos.localization.AppLanguage
 import com.erpnext.pos.printing.application.PrinterConnectionStatusStore
@@ -101,49 +92,7 @@ class PrinterManagementViewModel(
   private var currentLanguage: AppLanguage = AppLanguage.Spanish
 
   init {
-    viewModelScope.launch {
-      combine(
-              profileRepository.observeProfiles(),
-              printJobRepository.observeJobs(),
-              selection,
-              draft,
-              devices,
-              message,
-              busy,
-              checkingConnection,
-          ) { args: Array<Any?> ->
-            val profiles = args[0] as List<PrinterProfile>
-            val jobs = args[1] as List<PrintJob>
-            val selectedId = args[2] as String?
-            val form = args[3] as PrinterProfileFormState
-            val discovered = args[4] as List<DiscoveredPrinterDevice>
-            val toast = args[5] as String?
-            val isBusy = args[6] as Boolean
-            val isCheckingConnection = args[7] as Boolean
-            val activeProfile = profiles.firstOrNull { it.id == selectedId }
-            val defaultProfile = profiles.firstOrNull { it.isDefault }
-            PrinterManagementUiState(
-                profiles = profiles,
-                selectedProfileId = selectedId,
-                selectedProfileName = activeProfile?.name,
-                defaultProfileName = defaultProfile?.name,
-                form =
-                    if (selectedId == form.id || activeProfile == null) {
-                      form
-                    } else {
-                      activeProfile.toFormState()
-                    },
-                jobs = jobs.take(10),
-                discoveredDevices = discovered,
-                message = toast,
-                isBusy = isBusy,
-                isCheckingConnection = isCheckingConnection,
-                platformSummary =
-                    "Platform ${PrintingPlatform.capabilities.platform} supports ${PrintingPlatform.capabilities.supportedTransports.joinToString()}",
-            )
-          }
-          .collect { state -> _uiState.value = state }
-    }
+    observeUiState()
     viewModelScope.launch {
       languagePreferences.language.collect { language -> currentLanguage = language }
     }
@@ -259,7 +208,7 @@ class PrinterManagementViewModel(
     viewModelScope.launch {
       busy.value = true
       runCatching {
-            val profile = draft.value.toProfile()
+            val profile = draft.value.toProfile(::nextPrinterId)
             validateProfileDraft(profile)
             savePrinterProfileUseCase(profile)
             val savedProfile = profileRepository.getById(profile.id) ?: profile
@@ -326,7 +275,11 @@ class PrinterManagementViewModel(
               AppLogger.info(
                   "PrinterManagementViewModel.setSelectedAsDefault -> default profile=${profile.name}"
               )
-              message.value = "'${profile.name}' is now the default printer."
+              message.value =
+                  tr(
+                      "'${profile.name}' ahora es la impresora predeterminada.",
+                      "'${profile.name}' is now the default printer.",
+                  )
             } else {
               message.value = tr("Impresora predeterminada actualizada.", "Default printer updated.")
             }
@@ -352,47 +305,18 @@ class PrinterManagementViewModel(
       busy.value = true
       val jobId = "job-${Clock.System.now().toEpochMilliseconds()}"
       val form = draft.value
-      val draftProfile = form.toProfile()
-      val document =
-          if (form.family == PrinterFamily.RECEIPT) {
-            ReceiptDocument(
-                documentId = "test-${Clock.System.now().toEpochMilliseconds()}",
-                header =
-                    ReceiptSection(
-                        lines = listOf("ERPNext POS", "Printer Test"),
-                        alignment = PrintAlignment.CENTER,
-                    ),
-                bodyLines =
-                    listOf(
-                        ReceiptLine("Coffee beans", "C$ 120.00"),
-                        ReceiptLine("Notebook", "C$ 35.00"),
-                    ),
-                totals = ReceiptTotals(subTotal = "C$ 155.00", tax = "C$ 0.00", total = "C$ 155.00"),
-                footer =
-                    ReceiptSection(
-                        lines = listOf("Offline-first printing baseline", "Thank you"),
-                        alignment = PrintAlignment.CENTER,
-                    ),
-            )
-          } else {
-            LabelDocument(
-                documentId = "label-${Clock.System.now().toEpochMilliseconds()}",
-                fields =
-                    listOf(
-                        LabelField(30, 30, text = "ERPNext POS"),
-                        LabelField(30, 80, text = "LABEL TEST"),
-                        LabelField(30, 130, text = draft.value.name.ifBlank { "Printer" }),
-                    ),
-            )
-          }
+      val draftProfile = form.toProfile(::nextPrinterId)
+      val document = buildTestDocument(form, nowProvider = { Clock.System.now().toEpochMilliseconds() })
+      val createdAt = Clock.System.now().toEpochMilliseconds()
+      val summary = "Test print for ${form.name.ifBlank { "printer" }}"
       printJobRepository.enqueue(
-          PrintJob(
-              id = jobId,
+          createPrintJob(
+              jobId = jobId,
               profileId = selectedId,
               documentId = document.documentId,
               documentType = document::class.simpleName.orEmpty(),
-              summary = "Test print for ${form.name.ifBlank { "printer" }}",
-              createdAtEpochMs = Clock.System.now().toEpochMilliseconds(),
+              summary = summary,
+              nowEpochMs = createdAt,
           )
       )
       runCatching {
@@ -401,17 +325,18 @@ class PrinterManagementViewModel(
                 "PrinterManagementViewModel.printTestDocument -> profile=${draftProfile.name}, preferred=${draftProfile.preferredTransport}, jobId=$jobId"
             )
             val result = printDocumentUseCase(PrintDocumentInput(selectedId, document)).getOrThrow()
+            val completedAt = Clock.System.now().toEpochMilliseconds()
             printJobRepository.update(
-                PrintJob(
-                    id = jobId,
+                createPrintJob(
+                    jobId = jobId,
                     profileId = selectedId,
                     documentId = document.documentId,
                     documentType = document::class.simpleName.orEmpty(),
-                    summary = "Test print for ${form.name.ifBlank { "printer" }}",
+                    summary = summary,
+                    nowEpochMs = createdAt,
                     status = com.erpnext.pos.domain.printing.model.PrintJobStatus.SUCCESS,
                     attempts = 1,
-                    createdAtEpochMs = Clock.System.now().toEpochMilliseconds(),
-                    completedAtEpochMs = Clock.System.now().toEpochMilliseconds(),
+                    completedAtEpochMs = completedAt,
                 )
             )
             message.value =
@@ -422,18 +347,19 @@ class PrinterManagementViewModel(
           }
           .onFailure {
             AppLogger.warn("PrinterManagementViewModel.printTestDocument failed", it, reportToSentry = false)
+            val completedAt = Clock.System.now().toEpochMilliseconds()
             printJobRepository.update(
-                PrintJob(
-                    id = jobId,
+                createPrintJob(
+                    jobId = jobId,
                     profileId = selectedId,
                     documentId = document.documentId,
                     documentType = document::class.simpleName.orEmpty(),
-                    summary = "Test print for ${form.name.ifBlank { "printer" }}",
+                    summary = summary,
+                    nowEpochMs = createdAt,
                     status = com.erpnext.pos.domain.printing.model.PrintJobStatus.FAILED,
                     attempts = 1,
                     lastError = it.message,
-                    createdAtEpochMs = Clock.System.now().toEpochMilliseconds(),
-                    completedAtEpochMs = Clock.System.now().toEpochMilliseconds(),
+                    completedAtEpochMs = completedAt,
                 )
             )
             message.value =
@@ -450,7 +376,7 @@ class PrinterManagementViewModel(
     viewModelScope.launch {
       val profile =
           runCatching {
-                val draftProfile = draft.value.toProfile()
+                val draftProfile = draft.value.toProfile(::nextPrinterId)
                 validateProfileReadyToPrint(draftProfile)
                 draftProfile
               }
@@ -500,59 +426,6 @@ class PrinterManagementViewModel(
     message.value = null
   }
 
-  private fun PrinterProfile.toFormState(): PrinterProfileFormState =
-      PrinterProfileFormState(
-          id = id,
-          name = name,
-          brandHint = brandHint.orEmpty(),
-          modelHint = modelHint.orEmpty(),
-          family = family,
-          language = language,
-          supportedTransports = supportedTransports,
-          preferredTransport = preferredTransport,
-          host = host.orEmpty(),
-          port = (port ?: 9100).toString(),
-          bluetoothMacAddress = bluetoothMacAddress.orEmpty(),
-          bluetoothName = bluetoothName.orEmpty(),
-          paperWidthMm = paperWidthMm.toString(),
-          charactersPerLine = charactersPerLine.toString(),
-          codePage = codePage,
-          autoCut = autoCut,
-          openDrawer = openDrawer,
-          isDefault = isDefault,
-          isEnabled = isEnabled,
-          notes = notes.orEmpty(),
-      )
-
-  private fun PrinterProfileFormState.toProfile(): PrinterProfile {
-    val id = id ?: "printer-${Clock.System.now().toEpochMilliseconds()}"
-    return PrinterProfile(
-        id = id,
-        name = name.trim(),
-        brandHint = brandHint.trim().takeIf { it.isNotBlank() },
-        modelHint = modelHint.trim().takeIf { it.isNotBlank() },
-        family = family,
-        language = language,
-        supportedTransports = supportedTransports.ifEmpty { setOf(TransportType.TCP_RAW) },
-        preferredTransport = preferredTransport,
-        host = host.trim().takeIf { it.isNotBlank() },
-        port = port.toIntOrNull() ?: 9100,
-        bluetoothMacAddress = bluetoothMacAddress.trim().takeIf { it.isNotBlank() },
-        bluetoothName = bluetoothName.trim().takeIf { it.isNotBlank() },
-        capabilities =
-            PrinterCapabilities(
-                paperWidthMm = paperWidthMm.toIntOrNull() ?: 80,
-                charactersPerLine = charactersPerLine.toIntOrNull() ?: 32,
-                codePage = codePage.trim().ifBlank { "CP437" },
-                autoCut = autoCut,
-                openDrawer = openDrawer,
-            ),
-        isDefault = isDefault,
-        isEnabled = isEnabled,
-        notes = notes.trim().takeIf { it.isNotBlank() },
-    )
-  }
-
   private fun validateProfileDraft(profile: PrinterProfile) {
     require(profile.name.isNotBlank()) { tr("El nombre de impresora es obligatorio.", "Printer name is required.") }
     require(profile.supportedTransports.isNotEmpty()) { tr("Selecciona al menos un transporte.", "Select at least one transport.") }
@@ -582,4 +455,38 @@ class PrinterManagementViewModel(
       } else {
         english
       }
+
+  private fun observeUiState() {
+    viewModelScope.launch {
+      val coreState =
+          combine(
+              profileRepository.observeProfiles(),
+              printJobRepository.observeJobs(),
+              selection,
+              draft,
+          ) { profiles, jobs, selectedProfileId, form ->
+            PrinterUiCoreState(
+                profiles = profiles,
+                jobs = jobs,
+                selectedProfileId = selectedProfileId,
+                form = form,
+            )
+          }
+
+      combine(coreState, devices, message, busy, checkingConnection) {
+          core,
+          discoveredDevices,
+          toast,
+          isBusy,
+          isCheckingConnection,
+        ->
+        core.toUiState(
+            discoveredDevices = discoveredDevices,
+            message = toast,
+            isBusy = isBusy,
+            isCheckingConnection = isCheckingConnection,
+        )
+      }.collect { state -> _uiState.value = state }
+    }
+  }
 }

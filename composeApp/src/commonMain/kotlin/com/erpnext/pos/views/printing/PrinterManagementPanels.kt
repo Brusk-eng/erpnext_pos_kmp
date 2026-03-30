@@ -214,7 +214,7 @@ private fun DiscoveredPrinterCard(
         device.languageHint?.let {
           CategoryBadge(
               tr(language, "Lenguaje", "Language"),
-              humanLanguage(it, language),
+              humanLanguage(it),
               MaterialTheme.colorScheme.tertiary,
           )
         }
@@ -307,7 +307,7 @@ private fun PrinterProfileCard(
         CategoryBadge(tr(language, "Tipo", "Type"), humanFamily(profile.family, language), MaterialTheme.colorScheme.secondary)
         CategoryBadge(
             tr(language, "Lenguaje", "Language"),
-            humanLanguage(profile.language, language),
+            humanLanguage(profile.language),
             MaterialTheme.colorScheme.tertiary,
         )
         profile.supportedTransports.forEach { transport ->
@@ -427,7 +427,7 @@ internal fun humanFamily(family: PrinterFamily, language: AppLanguage): String =
       PrinterFamily.LABEL -> tr(language, "Etiqueta", "Label")
     }
 
-internal fun humanLanguage(printerLanguage: PrinterLanguage, language: AppLanguage): String =
+internal fun humanLanguage(printerLanguage: PrinterLanguage): String =
     when (printerLanguage) {
       PrinterLanguage.ESC_POS -> "ESC/POS"
       PrinterLanguage.ZPL -> "ZPL"

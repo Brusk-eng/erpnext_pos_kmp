@@ -16,7 +16,6 @@ import com.erpnext.pos.navigation.NavRoute
 import com.erpnext.pos.navigation.NavigationManager
 import com.erpnext.pos.sync.*
 import com.erpnext.pos.utils.AppLogger
-import com.erpnext.pos.utils.normalizeCurrency
 import com.erpnext.pos.views.CashBoxManager
 import com.erpnext.pos.views.PaymentModeWithAmount
 import com.erpnext.pos.views.reconciliation.ReconciliationMode
@@ -108,7 +107,7 @@ class HomeViewModel(
         }
         viewModelScope.launch {
             openingEntryId.collectLatest { openingId ->
-                val normalized = openingId?.trim()?.takeIf { it.isNotBlank() }
+                val normalized = openingId.normalizedOpeningEntryId()
                 if (normalized == null && contextManager.cashboxState.value && lastMetricsOpeningEntryId != null) {
                     return@collectLatest
                 }
@@ -181,11 +180,7 @@ class HomeViewModel(
                     withContext(Dispatchers.Default) {
                         userInfo = fetchUserInfoUseCase.invoke(null)
                         AppLogger.info("HomeViewModel.loadInitialData -> userInfo loaded")
-                        when (val gate = posProfileGate.ensureReady()) {
-                            is GateResult.Failed -> error(gate.reason)
-                            is GateResult.Pending -> error(gate.reason)
-                            GateResult.Ready -> Unit
-                        }
+                        posProfileGate.ensureReady().requireReady()
                         AppLogger.info("HomeViewModel.loadInitialData -> gate ready")
                         posProfiles = fetchPosProfileUseCase.invoke(userInfo.email)
                         AppLogger.info("HomeViewModel.loadInitialData -> profiles loaded")
@@ -238,20 +233,16 @@ class HomeViewModel(
     }
 
     private suspend fun resolveMetricsOpeningEntryId(): String? {
-        val fromReporting =
-            contextManager.resolveOpeningEntryForReporting()?.trim()?.takeIf { it.isNotBlank() }
+        val fromReporting = contextManager.resolveOpeningEntryForReporting().normalizedOpeningEntryId()
         if (!fromReporting.isNullOrBlank()) return fromReporting
 
-        val fromFlow = openingEntryId.value?.trim()?.takeIf { it.isNotBlank() }
+        val fromFlow = openingEntryId.value.normalizedOpeningEntryId()
         if (!fromFlow.isNullOrBlank()) return fromFlow
         val fromActiveCashbox =
-            contextManager.getActiveCashboxWithDetails()?.cashbox?.openingEntryId?.trim()?.takeIf {
-                it.isNotBlank()
-            }
+            contextManager.getActiveCashboxWithDetails()?.cashbox?.openingEntryId.normalizedOpeningEntryId()
         if (!fromActiveCashbox.isNullOrBlank()) return fromActiveCashbox
 
-        return bootstrapContextPreferences.load().posOpeningEntry?.trim()
-            ?.takeIf { it.isNotBlank() }
+        return bootstrapContextPreferences.load().posOpeningEntry.normalizedOpeningEntryId()
     }
 
     private fun observeLiveShiftMetrics():
@@ -275,58 +266,6 @@ class HomeViewModel(
                     )
                 }
             }
-    }
-
-    private fun mergeLiveShiftMetrics(
-        current: HomeMetrics,
-        live: HomeLiveShiftMetrics,
-    ): HomeMetrics {
-        val liveByCurrency = live.byCurrency.associateBy { normalizeCurrency(it.currency) }
-
-        val existingByCurrency =
-            current.currencyMetrics.associateBy { normalizeCurrency(it.currency) }
-        val allCurrencyKeys = (existingByCurrency.keys + liveByCurrency.keys).toList().sorted()
-
-        val mergedCurrencies =
-            allCurrencyKeys.map { key ->
-                val existing = existingByCurrency[key]
-                val liveCurrency = liveByCurrency[key]
-                if (existing != null) {
-                    val liveTotal = liveCurrency?.totalSalesToday ?: 0.0
-                    val liveInvoices = liveCurrency?.invoicesToday ?: 0
-                    val liveCustomers = liveCurrency?.customersToday ?: 0
-                    val liveAvg = liveCurrency?.avgTicket ?: 0.0
-
-                    existing.copy(
-                        totalSalesToday = liveTotal,
-                        invoicesToday = liveInvoices,
-                        avgTicket = liveAvg,
-                        customersToday = liveCustomers,
-                    )
-                } else {
-                    val currency = liveCurrency?.currency ?: key
-                    val liveTotal = liveCurrency?.totalSalesToday ?: 0.0
-                    val liveInvoices = liveCurrency?.invoicesToday ?: 0
-                    val liveCustomers = liveCurrency?.customersToday ?: 0
-                    val liveAvg = liveCurrency?.avgTicket ?: 0.0
-                    CurrencyHomeMetric(
-                        currency = currency,
-                        totalSalesToday = liveTotal,
-                        invoicesToday = liveInvoices,
-                        avgTicket = liveAvg,
-                        customersToday = liveCustomers,
-                        outstandingTotal = 0.0,
-                    )
-                }
-            }
-
-        return current.copy(
-            totalSalesToday = live.totalSalesToday,
-            invoicesToday = live.invoicesToday,
-            avgTicket = live.avgTicket,
-            customersToday = live.customersToday,
-            currencyMetrics = mergedCurrencies,
-        )
     }
 
     fun isCashboxOpen(): StateFlow<Boolean> = contextManager.cashboxState
@@ -394,11 +333,7 @@ class HomeViewModel(
         viewModelScope.launch {
             _openingState.update { it.copy(isLoading = true, error = null) }
             runCatching {
-                when (val gate = openingGate.ensureReady(profileId)) {
-                    is GateResult.Failed -> error(gate.reason)
-                    is GateResult.Pending -> error(gate.reason)
-                    GateResult.Ready -> Unit
-                }
+                openingGate.ensureReady(profileId).requireReady()
                 val profile = posProfileDao.getPOSProfile(profileId)
                 val methods = paymentMethodLocalRepository.getMethodsForProfile(profileId)
                 val cashMethods =
@@ -406,17 +341,14 @@ class HomeViewModel(
                         profileId,
                         profile.currency,
                     )
-                _openingState.update {
-                    it.copy(
+                _openingState.value =
+                    buildOpeningProfileState(
                         profileId = profile.profileName,
                         company = profile.company,
                         baseCurrency = profile.currency,
                         methods = methods,
                         cashMethodsByCurrency = cashMethods,
-                        isLoading = false,
-                        error = null,
                     )
-                }
             }
                 .onFailure { error ->
                     _openingState.update {

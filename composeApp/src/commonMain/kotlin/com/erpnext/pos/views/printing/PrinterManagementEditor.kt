@@ -258,7 +258,7 @@ private fun PrinterEditorForm(
           FilterChip(
               selected = form.language == printerLanguage,
               onClick = { onUpdateForm { current -> current.copy(language = printerLanguage) } },
-              label = { Text(humanLanguage(printerLanguage, language)) },
+              label = { Text(humanLanguage(printerLanguage)) },
           )
         }
       }

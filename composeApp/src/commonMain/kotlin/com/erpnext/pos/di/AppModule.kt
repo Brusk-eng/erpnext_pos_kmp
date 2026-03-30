@@ -419,7 +419,6 @@ val appModule = module {
 
     single {
         SessionRefresher(
-            mutex = get(),
             contextProvider = get(),
             policy = get(),
             executor = get(),

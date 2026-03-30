@@ -223,14 +223,7 @@ class APIService(
 
   suspend fun getStockSettings(): List<StockSettingsDto> {
     return runCatching {
-          val payload =
-              BootstrapRequestDto(
-                  includeInventory = false,
-                  includeCustomers = false,
-                  includeInvoices = false,
-                  includeActivity = false,
-                  recentPaidOnly = true,
-              )
+          val payload = minimalBootstrapRequest()
           val stock = fetchBootstrapRaw(payload)["stock_settings"] ?: JsonObject(emptyMap())
           listOf(json.decodeFromJsonElement<StockSettingsDto>(stock))
         }
@@ -302,14 +295,7 @@ class APIService(
   }
 
   suspend fun fetchPaymentTerms(): List<PaymentTermDto> {
-    val payload =
-        BootstrapRequestDto(
-            includeInventory = false,
-            includeCustomers = false,
-            includeInvoices = false,
-            includeActivity = false,
-            recentPaidOnly = true,
-        )
+    val payload = minimalBootstrapRequest()
     val raw = fetchBootstrapRaw(payload)
     return raw["payment_terms"]
         ?.let { json.decodeFromJsonElement<List<PaymentTermDto>>(it) }
@@ -317,14 +303,7 @@ class APIService(
   }
 
   suspend fun fetchDeliveryCharges(): List<ShippingRuleDto> {
-    val payload =
-        BootstrapRequestDto(
-            includeInventory = false,
-            includeCustomers = false,
-            includeInvoices = false,
-            includeActivity = false,
-            recentPaidOnly = true,
-        )
+    val payload = minimalBootstrapRequest()
     val raw = fetchBootstrapRaw(payload)
     return raw["delivery_charges"]
         ?.let { json.decodeFromJsonElement<List<ShippingRuleDto>>(it) }
@@ -355,27 +334,22 @@ class APIService(
     try {
       require(expectedState == returnedState) { "CSRF state mismatch" }
       AppLogger.info("exchangeCode redirect_uri -> ${oauthConfig.redirectUrl}")
+      val request =
+          AuthCodeExchangeRequest(
+              code = code,
+              redirectUri = oauthConfig.redirectUrl,
+              clientId = oauthConfig.clientId,
+              verifier = pkce.verifier,
+          )
       val res =
           tokenClient
               .post(oauthConfig.tokenUrl) {
                 contentType(ContentType.Application.FormUrlEncoded)
-                setBody(
-                    Parameters.build {
-                          append("grant_type", "authorization_code")
-                          append("code", code)
-                          append("redirect_uri", oauthConfig.redirectUrl)
-                          append("client_id", oauthConfig.clientId)
-                          append("code_verifier", pkce.verifier)
-                        }
-                        .formUrlEncode()
-                )
+                setBody(buildAuthCodeExchangeForm(request))
               }
               .body<TokenResponse>()
 
-      AppLogger.info("exchangeCode -> token response received, saving tokens")
-      store.save(res)
-      AppLogger.info("exchangeCode -> tokens saved")
-      return res
+      return saveExchangedTokens(res)
     } catch (e: Throwable) {
       e.printStackTrace()
       AppSentry.capture(e, "exchangeCode failed")
@@ -393,47 +367,11 @@ class APIService(
     val remoteUser = fetchAuthenticatedUser()
     val currentSite = authStore.getCurrentSite()?.trim()?.trimEnd('/')
     val fallbackEmail = store.loadUser()?.trim()?.takeIf { it.contains("@") }
-    val normalizedName = remoteUser.name.trim().ifBlank { remoteUser.username?.trim().orEmpty() }
-    val normalizedUsername =
-        remoteUser.username?.trim()?.takeIf { it.isNotBlank() } ?: normalizedName
-    val normalizedFirstName =
-        remoteUser.firstName?.trim()?.takeIf { it.isNotBlank() }
-            ?: remoteUser.fullName?.trim()?.substringBefore(" ")?.takeIf { it.isNotBlank() }
-            ?: normalizedUsername
-    val normalizedEmail =
-        remoteUser.email?.trim()?.takeIf { it.isNotBlank() } ?: fallbackEmail ?: normalizedUsername
-    val normalizedFullName =
-        remoteUser.fullName?.trim()?.takeIf { it.isNotBlank() }
-            ?: listOfNotNull(normalizedFirstName, remoteUser.lastName).joinToString(" ").trim()
-    val normalizedImage =
-        remoteUser.image
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?.let { raw ->
-              when {
-                raw.startsWith("http://", ignoreCase = true) ||
-                    raw.startsWith("https://", ignoreCase = true) -> raw
-
-                raw.startsWith("/") && !currentSite.isNullOrBlank() -> "$currentSite$raw"
-                !currentSite.isNullOrBlank() -> "$currentSite/$raw"
-                else -> raw
-              }
-            }
-    return remoteUser.copy(
-        name = normalizedName,
-        username = normalizedUsername,
-        firstName = normalizedFirstName,
-        email = normalizedEmail,
-        fullName = normalizedFullName,
-        image = normalizedImage,
-    )
+    return remoteUser.normalizeForPresentation(currentSite = currentSite, fallbackEmail = fallbackEmail)
   }
 
   suspend fun getIdTokenIssuerAndCurrentSite(idToken: String?): Pair<String?, String?> {
-    val issuer =
-        TokenUtils.decodePayload(idToken ?: "")?.get("iss")?.toString()?.trim()?.takeIf {
-          it.isNotBlank()
-        }?.trimEnd('/')?.lowercase()
+    val issuer = decodeIssuer(idToken)
     val site = authStore.getCurrentSite()?.trim()?.takeIf { it.isNotBlank() }?.lowercase()
     return issuer to site
   }
@@ -468,8 +406,10 @@ class APIService(
       toCurrency: String,
       date: String? = null,
   ): Double? {
-    val url = authStore.getCurrentSite() ?: return null
-    val endpoint = "$url/api/method/erpnext.setup.utils.get_exchange_rate"
+    val endpoint =
+        authStore.getCurrentSite()?.trim()?.trimEnd('/')?.let {
+          "$it/api/method/erpnext.setup.utils.get_exchange_rate"
+        } ?: return null
     return runCatching {
           val response =
               client.get(endpoint) {
@@ -506,14 +446,7 @@ class APIService(
   }
 
   suspend fun getEnabledCurrencies(): List<CurrencyDto> {
-    val payload =
-        BootstrapRequestDto(
-            includeInventory = false,
-            includeCustomers = false,
-            includeInvoices = false,
-            includeActivity = false,
-            recentPaidOnly = true,
-        )
+    val payload = minimalBootstrapRequest()
     val raw = fetchBootstrapRaw(payload)
     return raw["currencies"]?.let { json.decodeFromJsonElement<List<CurrencyDto>>(it) }.orEmpty()
   }
@@ -521,14 +454,7 @@ class APIService(
   suspend fun getCurrencyDetail(code: String): JsonObject? {
     val normalized = code.trim().uppercase()
     if (normalized.isBlank()) return null
-    val payload =
-        BootstrapRequestDto(
-            includeInventory = false,
-            includeCustomers = false,
-            includeInvoices = false,
-            includeActivity = false,
-            recentPaidOnly = true,
-        )
+    val payload = minimalBootstrapRequest()
     val currencies = fetchBootstrapRaw(payload)["currencies"]?.jsonArray ?: return null
     return currencies
         .asSequence()
@@ -537,28 +463,13 @@ class APIService(
   }
 
   suspend fun getCategories(): List<CategoryDto> {
-    val payload =
-        BootstrapRequestDto(
-            includeInventory = true,
-            includeCustomers = false,
-            includeInvoices = false,
-            includeActivity = false,
-            recentPaidOnly = true,
-        )
+    val payload = inventoryBootstrapRequest()
     val raw = fetchBootstrapRaw(payload)
     return raw["categories"]?.let { json.decodeFromJsonElement<List<CategoryDto>>(it) }.orEmpty()
   }
 
   suspend fun getItemDetail(itemId: String): ItemDto {
-    val payload =
-        BootstrapRequestDto(
-            includeInventory = true,
-            includeCustomers = false,
-            includeInvoices = false,
-            includeActivity = false,
-            recentPaidOnly = true,
-            limit = BOOTSTRAP_SNAPSHOT_LIMIT,
-        )
+    val payload = inventoryBootstrapRequest(limit = BOOTSTRAP_SNAPSHOT_LIMIT)
     val item =
         fetchBootstrap(payload).inventoryItems.firstOrNull { it.itemCode == itemId }
             ?: throw IllegalStateException("Item $itemId no encontrado en sync.bootstrap")
@@ -689,14 +600,7 @@ class APIService(
   }
 
   suspend fun getPOSOpeningEntry(name: String): POSOpeningEntryDetailDto {
-    val payload =
-        BootstrapRequestDto(
-            includeInventory = false,
-            includeCustomers = false,
-            includeInvoices = false,
-            includeActivity = false,
-            recentPaidOnly = true,
-        )
+    val payload = minimalBootstrapRequest()
     val openShift =
         fetchBootstrapRaw(payload)["open_shift"] as? JsonObject
             ?: throw IllegalStateException("Open shift not available for POS Opening Entry lookup")
@@ -866,6 +770,13 @@ class APIService(
 
   private fun decodeMethodMessageAsObject(bodyText: String): JsonObject {
     return decodeMethodMessage(bodyText)
+  }
+
+  private suspend fun saveExchangedTokens(tokens: TokenResponse): TokenResponse {
+    AppLogger.info("exchangeCode -> token response received, saving tokens")
+    store.save(tokens)
+    AppLogger.info("exchangeCode -> tokens saved")
+    return tokens
   }
 
   private fun extractMethodDataOrThrow(message: JsonObject): JsonObject {
@@ -1363,26 +1274,6 @@ class APIService(
         fullName = fullName,
         enabled = enabled,
     )
-  }
-
-  private fun JsonObject.stringOrNull(key: String): String? {
-    return this[key]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
-  }
-
-  private fun JsonObject.intOrNull(key: String): Int? {
-    val raw = this[key]?.jsonPrimitive?.contentOrNull ?: return null
-    return raw.toIntOrNull()
-  }
-
-  private fun JsonObject.numberOrNull(key: String): Double? {
-    val primitive = this[key]?.jsonPrimitive ?: return null
-    return primitive.doubleOrNull ?: primitive.contentOrNull?.toDoubleOrNull()
-  }
-
-  private fun isSameUserIdentifier(left: String?, right: String?): Boolean {
-    val normalizedLeft = left?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: return false
-    val normalizedRight = right?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: return false
-    return normalizedLeft == normalizedRight
   }
 
   suspend fun closeCashbox(

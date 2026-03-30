@@ -1,6 +1,5 @@
 package com.erpnext.pos.views.customer.components
 
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -27,7 +26,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,7 +40,6 @@ import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
 import com.erpnext.pos.domain.models.CustomerBO
 import com.erpnext.pos.domain.models.CustomerQuickActionType
-import com.erpnext.pos.localSource.entities.SalesInvoiceWithItemsAndPayments
 import com.erpnext.pos.utils.normalizeCurrency
 import com.erpnext.pos.views.CashBoxManager
 import kotlinx.coroutines.delay

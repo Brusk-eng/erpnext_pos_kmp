@@ -5,6 +5,11 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.*
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 
 // TODO: Mover
 object IntAsBooleanSerializer : KSerializer<Boolean> {
@@ -16,7 +21,28 @@ object IntAsBooleanSerializer : KSerializer<Boolean> {
   }
 
   override fun deserialize(decoder: Decoder): Boolean {
-    return decoder.decodeInt() != 0
+    if (decoder is JsonDecoder) {
+      return decodeJsonPrimitive(decoder.decodeJsonElement() as? JsonPrimitive)
+    }
+
+    return runCatching { decoder.decodeInt() != 0 }
+        .recoverCatching { decoder.decodeBoolean() }
+        .recoverCatching { parseStringValue(decoder.decodeString()) }
+        .getOrElse { false }
+  }
+
+  private fun decodeJsonPrimitive(value: JsonPrimitive?): Boolean {
+    if (value == null) return false
+    value.booleanOrNull?.let { return it }
+    value.intOrNull?.let { return it != 0 }
+    return parseStringValue(value.contentOrNull)
+  }
+
+  private fun parseStringValue(value: String?): Boolean {
+    return when (value?.trim()?.lowercase()) {
+      "1", "true", "yes", "y", "on" -> true
+      else -> false
+    }
   }
 }
 
