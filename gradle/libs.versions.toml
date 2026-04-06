@@ -27,7 +27,7 @@ kotlinx-serialization = "1.10.0"
 
 ksp = "2.3.6"
 ktor = "3.4.1"
-koin = "4.1.1"
+koin = "4.2.0"
 pagingVersion = "3.4.1"
 pullrefresh = "1.3.0"
 sentry-sdk = "8.35.0"
