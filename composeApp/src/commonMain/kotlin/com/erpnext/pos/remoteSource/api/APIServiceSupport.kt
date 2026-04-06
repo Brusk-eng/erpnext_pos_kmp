@@ -1,6 +1,7 @@
 package com.erpnext.pos.remoteSource.api
 
 import com.erpnext.pos.remoteSource.dto.BootstrapRequestDto
+import com.erpnext.pos.remoteSource.dto.CustomerDto
 import com.erpnext.pos.remoteSource.dto.UserDto
 import com.erpnext.pos.utils.TokenUtils
 import io.ktor.http.Parameters
@@ -83,6 +84,10 @@ internal fun UserDto.normalizeForPresentation(
       fullName = normalizedFullName,
       image = resolveImageUrl(image, currentSite),
   )
+}
+
+internal fun CustomerDto.normalizeForPresentation(currentSite: String?): CustomerDto {
+  return copy(image = resolveImageUrl(image, currentSite))
 }
 
 internal fun resolveImageUrl(rawImage: String?, currentSite: String?): String? {

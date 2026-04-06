@@ -61,7 +61,9 @@ class PaymentEntryViewModel(
 ) : BaseViewModel() {
   private val json = Json { ignoreUnknownKeys = true }
   private val amountDraftByType = mutableMapOf<PaymentEntryType, String>()
+  private val referenceNoDraftByType = mutableMapOf<PaymentEntryType, String>()
   private val referenceDateDraftByType = mutableMapOf<PaymentEntryType, String>()
+  private val autoReferenceDraftByType = mutableMapOf<PaymentEntryType, String>()
 
   private val _state = MutableStateFlow(PaymentEntryState())
   val state: StateFlow<PaymentEntryState> = _state
@@ -89,14 +91,39 @@ class PaymentEntryViewModel(
   private fun resetTypeDrafts() {
     PaymentEntryType.entries.forEach { type ->
       amountDraftByType[type] = ""
+      referenceNoDraftByType[type] = defaultReferenceNo(type)
       referenceDateDraftByType[type] = defaultReferenceDate()
     }
   }
 
   private fun draftAmountFor(type: PaymentEntryType): String = amountDraftByType[type].orEmpty()
 
+  private fun draftReferenceNoFor(type: PaymentEntryType): String =
+      referenceNoDraftByType[type].orEmpty()
+
   private fun draftReferenceDateFor(type: PaymentEntryType): String =
       referenceDateDraftByType[type]?.takeIf { it.isNotBlank() } ?: defaultReferenceDate()
+
+  private fun defaultReferenceNo(type: PaymentEntryType): String {
+    if (type == PaymentEntryType.Receive) return ""
+    val generated = generateAutomaticReference(type)
+    autoReferenceDraftByType[type] = generated
+    return generated
+  }
+
+  private fun syncAutoReferenceFor(type: PaymentEntryType) {
+    if (type == PaymentEntryType.Receive) return
+    val currentReference = draftReferenceNoFor(type)
+    val previousAutoReference = autoReferenceDraftByType[type].orEmpty()
+    if (!shouldReplaceWithAutoReference(currentReference, previousAutoReference)) return
+
+    val generated = generateAutomaticReference(type)
+    autoReferenceDraftByType[type] = generated
+    referenceNoDraftByType[type] = generated
+    if (_state.value.entryType == type) {
+      _state.update { it.copy(referenceNo = generated, referenceNoError = null) }
+    }
+  }
 
   fun resetFormState() {
     val current = _state.value
@@ -112,6 +139,7 @@ class PaymentEntryViewModel(
             supplierPendingInvoices = emptyList(),
             isOnline = current.isOnline,
             offlineModeEnabled = current.offlineModeEnabled,
+            referenceNo = draftReferenceNoFor(PaymentEntryType.Receive),
             referenceDate = draftReferenceDateFor(PaymentEntryType.Receive),
         )
   }
@@ -200,6 +228,7 @@ class PaymentEntryViewModel(
       it.copy(
           entryType = entryType,
           amount = draftAmountFor(entryType),
+          referenceNo = draftReferenceNoFor(entryType),
           referenceDate = draftReferenceDateFor(entryType),
           invoiceId = if (entryType == PaymentEntryType.Receive) it.invoiceId else "",
           sourceAccount =
@@ -246,6 +275,7 @@ class PaymentEntryViewModel(
           supplierInvoicesError = null,
       )
     }
+    syncAutoReferenceFor(_state.value.entryType)
     val current = _state.value
     if (current.entryType == PaymentEntryType.Pay && current.supplierPendingInvoices.isNotEmpty()) {
       refreshSupplierInvoiceConversions(
@@ -263,18 +293,34 @@ class PaymentEntryViewModel(
   fun onSourceAccountChanged(value: String) {
     val normalized = value.trim()
     val inferredMode = accountToMode[normalized].orEmpty()
+    val inferredCurrency = modeToCurrency[inferredMode]?.takeIf { it.isNotBlank() }
     if (_state.value.entryType == PaymentEntryType.Pay && inferredMode.isNotBlank()) {
       onModeOfPaymentChanged(inferredMode)
       _state.update { state ->
-        state.copy(sourceAccount = value, modeOfPayment = inferredMode, errorMessage = null)
+        state.copy(
+            sourceAccount = value,
+            modeOfPayment = inferredMode,
+            currencyCode = inferredCurrency ?: state.currencyCode,
+            errorMessage = null,
+        )
+      }
+    } else if (_state.value.entryType == PaymentEntryType.InternalTransfer) {
+      _state.update { state ->
+        state.copy(
+            sourceAccount = value,
+            currencyCode = inferredCurrency ?: state.currencyCode,
+            errorMessage = null,
+        )
       }
     } else {
       _state.update { it.copy(sourceAccount = value, errorMessage = null) }
     }
+    syncAutoReferenceFor(_state.value.entryType)
   }
 
   fun onTargetAccountChanged(value: String) {
-    _state.update { it.copy(targetAccount = value) }
+    _state.update { it.copy(targetAccount = value, errorMessage = null) }
+    syncAutoReferenceFor(_state.value.entryType)
   }
 
   fun onAmountChanged(value: String) {
@@ -325,6 +371,7 @@ class PaymentEntryViewModel(
   }
 
   fun onReferenceNoChanged(value: String) {
+    referenceNoDraftByType[_state.value.entryType] = value
     _state.update { it.copy(referenceNo = value, referenceNoError = null, errorMessage = null) }
   }
 
@@ -587,6 +634,13 @@ class PaymentEntryViewModel(
                     ) ?: error("No se pudo obtener tipo de cambio $fromCurrency -> $toCurrency.")
                   }
               val receivedAmount = amount * rate
+              val resolvedReferenceNo =
+                  current.referenceNo.trim().ifBlank {
+                    generateAutomaticReference(current.entryType).also { generated ->
+                      referenceNoDraftByType[current.entryType] = generated
+                      autoReferenceDraftByType[current.entryType] = generated
+                    }
+                  }
               val payload =
                   PaymentOutCreateDto(
                       paymentType = "Pay",
@@ -610,7 +664,7 @@ class PaymentEntryViewModel(
                                 allocatedAmount = invoice.allocatedAmountInvoiceCurrency,
                             )
                           },
-                      referenceNo = current.referenceNo.trim().takeIf { it.isNotBlank() },
+                      referenceNo = resolvedReferenceNo,
                       referenceDate = current.referenceDate.trim().takeIf { it.isNotBlank() },
                   )
               val requestId = UUIDGenerator().newId()
@@ -657,7 +711,10 @@ class PaymentEntryViewModel(
               val receivedAmount = amount * rate
               val referenceNo =
                   current.referenceNo.trim().takeIf { it.isNotBlank() }
-                      ?: "TR-${Clock.System.now().toEpochMilliseconds()}"
+                      ?: generateAutomaticReference(current.entryType).also { generated ->
+                        referenceNoDraftByType[current.entryType] = generated
+                        autoReferenceDraftByType[current.entryType] = generated
+                      }
               val requestId = UUIDGenerator().newId()
               createInternalTransferUseCase(
                   CreateInternalTransferInput(
@@ -689,6 +746,15 @@ class PaymentEntryViewModel(
             }
           }
           _state.update {
+            val nextReferenceNo =
+                if (current.entryType == PaymentEntryType.Receive) {
+                  ""
+                } else {
+                  generateAutomaticReference(current.entryType).also { generated ->
+                    referenceNoDraftByType[current.entryType] = generated
+                    autoReferenceDraftByType[current.entryType] = generated
+                  }
+                }
             val successText =
                 when (current.entryType) {
                   PaymentEntryType.InternalTransfer ->
@@ -738,7 +804,7 @@ class PaymentEntryViewModel(
                     else it.supplierPendingInvoices,
                 supplierInvoicesLoading = false,
                 supplierInvoicesError = null,
-                referenceNo = "",
+                referenceNo = nextReferenceNo,
                 referenceDate = DateTimeProvider.todayDate(),
                 referenceNoError = null,
                 referenceDateError = null,
@@ -747,6 +813,7 @@ class PaymentEntryViewModel(
             )
           }
           amountDraftByType[current.entryType] = ""
+          referenceNoDraftByType[current.entryType] = _state.value.referenceNo
           referenceDateDraftByType[current.entryType] = DateTimeProvider.todayDate()
         },
         exceptionHandler = { throwable ->

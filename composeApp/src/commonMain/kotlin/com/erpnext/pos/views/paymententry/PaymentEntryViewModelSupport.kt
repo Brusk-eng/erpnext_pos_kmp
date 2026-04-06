@@ -1,5 +1,7 @@
 package com.erpnext.pos.views.paymententry
 
+import com.erpnext.pos.utils.view.DateTimeProvider
+import kotlin.time.Clock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -10,6 +12,26 @@ internal data class PaymentEntryFieldErrors(
     val referenceDateError: String? = null,
     val userMessage: String? = null,
 )
+
+internal fun generateAutomaticReference(
+    entryType: PaymentEntryType,
+    nowMillis: Long = Clock.System.now().toEpochMilliseconds(),
+): String {
+  val prefix =
+      when (entryType) {
+        PaymentEntryType.InternalTransfer -> "TRF"
+        PaymentEntryType.Pay -> "CMP"
+        PaymentEntryType.Receive -> "REF"
+      }
+  val compactDate = DateTimeProvider.todayDate().replace("-", "")
+  val sequence = (nowMillis % 1_000_000L).toString().padStart(6, '0')
+  return "$prefix-$compactDate-$sequence"
+}
+
+internal fun shouldReplaceWithAutoReference(
+    currentReference: String,
+    previousAutoReference: String,
+): Boolean = currentReference.isBlank() || currentReference == previousAutoReference
 
 internal fun roundMoney(value: Double): Double = kotlin.math.round(value * 100.0) / 100.0
 

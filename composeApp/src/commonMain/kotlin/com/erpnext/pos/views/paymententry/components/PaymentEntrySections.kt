@@ -141,7 +141,12 @@ internal fun PaymentEntryDetailSection(
                   label = { Text(referenceNoLabelCompact) },
                   placeholder = { Text(referenceNoPlaceholder) },
                   isError = state.referenceNoError != null,
-                  supportingText = { state.referenceNoError?.let { Text(it) } },
+                  supportingText = {
+                    Text(
+                        state.referenceNoError
+                            ?: "Se genera automáticamente si lo dejas vacío."
+                    )
+                  },
                   shape = fieldShape,
                   colors = fieldColors,
                   singleLine = true,
@@ -180,7 +185,12 @@ internal fun PaymentEntryDetailSection(
                   label = { Text(referenceNoLabelCompact) },
                   placeholder = { Text(referenceNoPlaceholder) },
                   isError = state.referenceNoError != null,
-                  supportingText = { state.referenceNoError?.let { Text(it) } },
+                  supportingText = {
+                    Text(
+                        state.referenceNoError
+                            ?: "Se genera automáticamente si lo dejas vacío."
+                    )
+                  },
                   shape = fieldShape,
                   colors = fieldColors,
                   singleLine = true,
@@ -204,7 +214,11 @@ internal fun PaymentEntryDetailSection(
                 label = { Text(referenceNoLabelFull) },
                 placeholder = { Text(referenceNoPlaceholder) },
                 isError = state.referenceNoError != null,
-                supportingText = { state.referenceNoError?.let { Text(it) } },
+                supportingText = {
+                  Text(
+                      state.referenceNoError ?: "Se genera automáticamente si lo dejas vacío."
+                  )
+                },
                 shape = fieldShape,
                 colors = fieldColors,
                 singleLine = true,

@@ -63,74 +63,81 @@ internal fun TransferFlowSection(
   ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
       val horizontal = maxWidth > 700.dp
-      if (horizontal) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-          TransferModeCard(
-              modifier = Modifier.weight(1f),
-              title = "Cuenta origen",
-              label = "Desde (cuenta)",
-              value = sourceValue,
-              options = options,
-              accent = scheme.primary,
-              shape = fieldShape,
-              colors = fieldColors,
-              onSelected = onSourceSelected,
-          )
-
-          TransferDirectionIndicator(
-              pulse = pulse,
-              gradient = listOf(scheme.primary, scheme.secondary),
-              modifier = Modifier.size(40.dp),
-          )
-
-          TransferModeCard(
-              modifier = Modifier.weight(1f),
-              title = "Cuenta destino",
-              label = "Hacia (cuenta)",
-              value = destinationValue,
-              options = options,
-              accent = scheme.secondary,
-              shape = fieldShape,
-              colors = fieldColors,
-              onSelected = onDestinationSelected,
-          )
-        }
-      } else {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-          TransferModeCard(
+      Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (horizontal) {
+          Row(
               modifier = Modifier.fillMaxWidth(),
-              title = "Cuenta origen",
-              label = "Desde (cuenta)",
-              value = sourceValue,
-              options = options,
-              accent = scheme.primary,
-              shape = fieldShape,
-              colors = fieldColors,
-              onSelected = onSourceSelected,
-          )
-          Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+              horizontalArrangement = Arrangement.spacedBy(10.dp),
+              verticalAlignment = Alignment.CenterVertically,
+          ) {
+            TransferModeCard(
+                modifier = Modifier.weight(1f),
+                title = "Cuenta origen",
+                label = "Desde (cuenta)",
+                value = sourceValue,
+                options = options,
+                accent = scheme.primary,
+                shape = fieldShape,
+                colors = fieldColors,
+                onSelected = onSourceSelected,
+            )
+
             TransferDirectionIndicator(
                 pulse = pulse,
                 gradient = listOf(scheme.primary, scheme.secondary),
-                modifier = Modifier.size(36.dp),
+                modifier = Modifier.size(40.dp),
+            )
+
+            TransferModeCard(
+                modifier = Modifier.weight(1f),
+                title = "Cuenta destino",
+                label = "Hacia (cuenta)",
+                value = destinationValue,
+                options = options,
+                accent = scheme.secondary,
+                shape = fieldShape,
+                colors = fieldColors,
+                onSelected = onDestinationSelected,
             )
           }
-          TransferModeCard(
-              modifier = Modifier.fillMaxWidth(),
-              title = "Cuenta destino",
-              label = "Hacia (cuenta)",
-              value = destinationValue,
-              options = options,
-              accent = scheme.secondary,
-              shape = fieldShape,
-              colors = fieldColors,
-              onSelected = onDestinationSelected,
-          )
+        } else {
+          Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            TransferModeCard(
+                modifier = Modifier.fillMaxWidth(),
+                title = "Cuenta origen",
+                label = "Desde (cuenta)",
+                value = sourceValue,
+                options = options,
+                accent = scheme.primary,
+                shape = fieldShape,
+                colors = fieldColors,
+                onSelected = onSourceSelected,
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+              TransferDirectionIndicator(
+                  pulse = pulse,
+                  gradient = listOf(scheme.primary, scheme.secondary),
+                  modifier = Modifier.size(36.dp),
+              )
+            }
+            TransferModeCard(
+                modifier = Modifier.fillMaxWidth(),
+                title = "Cuenta destino",
+                label = "Hacia (cuenta)",
+                value = destinationValue,
+                options = options,
+                accent = scheme.secondary,
+                shape = fieldShape,
+                colors = fieldColors,
+                onSelected = onDestinationSelected,
+            )
+          }
         }
+        Text(
+            text = "La moneda del monto sigue la cuenta origen seleccionada.",
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onSurfaceVariant,
+        )
       }
     }
   }

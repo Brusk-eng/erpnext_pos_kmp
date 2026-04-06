@@ -4,8 +4,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import org.koin.compose.viewmodel.koinViewModel
 
-codex resume 019d1c01-c6f6-7592-b348-6e0a54620111
-
 class PaymentEntryCoordinator(private val viewModel: PaymentEntryViewModel) {
   val state = viewModel.state
 

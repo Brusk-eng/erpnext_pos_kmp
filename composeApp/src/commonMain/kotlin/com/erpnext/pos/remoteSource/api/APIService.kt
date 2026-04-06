@@ -923,7 +923,11 @@ class APIService(
       firstRaw: JsonObject,
       firstData: BootstrapDataDto,
   ): BootstrapDataDto {
-    var resolved = firstData
+    val currentSite = authStore.getCurrentSite()?.trim()?.trimEnd('/')
+    var resolved =
+        firstData.copy(
+            customers = firstData.customers.map { it.normalizeForPresentation(currentSite) }
+        )
     val hasInventoryMeta = parseBootstrapPagination(firstRaw, "inventory") != null
     val hasCustomerMeta = parseBootstrapPagination(firstRaw, "customers") != null
     val hasInvoiceMeta = parseBootstrapPagination(firstRaw, "invoices") != null
@@ -954,7 +958,8 @@ class APIService(
           ) { data ->
             data.customers
           }
-      resolved = resolved.copy(customers = customers)
+      resolved =
+          resolved.copy(customers = customers.map { it.normalizeForPresentation(currentSite) })
     }
     if (payload.includeInvoices || hasInvoiceMeta || firstData.invoices.isNotEmpty()) {
       val invoices =

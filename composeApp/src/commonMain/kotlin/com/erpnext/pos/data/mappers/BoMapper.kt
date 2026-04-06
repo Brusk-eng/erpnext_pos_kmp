@@ -96,7 +96,7 @@ fun List<PaymentModesDto>.toBO(): List<PaymentModesBO> {
 }
 
 fun PaymentModesDto.toBO(): PaymentModesBO {
-  return PaymentModesBO(name = this.name, modeOfPayment = this.modeOfPayment)
+  return PaymentModesBO(name = this.modeOfPayment, modeOfPayment = this.modeOfPayment)
 }
 
 fun UserDto.toBO(): UserBO {

@@ -178,7 +178,11 @@ private fun ExpenseDetailFieldsSection(
                 label = { Text("Ref. comprobante") },
                 placeholder = { Text("FACT/CHK-001") },
                 isError = state.referenceNoError != null,
-                supportingText = { state.referenceNoError?.let { Text(it) } },
+                supportingText = {
+                  Text(
+                      state.referenceNoError ?: "Se genera automáticamente si lo dejas vacío."
+                  )
+                },
                 shape = fieldShape,
                 colors = fieldColors,
                 singleLine = true,
@@ -217,7 +221,11 @@ private fun ExpenseDetailFieldsSection(
                 label = { Text("Ref. comprobante") },
                 placeholder = { Text("FACT/CHK-001") },
                 isError = state.referenceNoError != null,
-                supportingText = { state.referenceNoError?.let { Text(it) } },
+                supportingText = {
+                  Text(
+                      state.referenceNoError ?: "Se genera automáticamente si lo dejas vacío."
+                  )
+                },
                 shape = fieldShape,
                 colors = fieldColors,
                 singleLine = true,
@@ -241,7 +249,9 @@ private fun ExpenseDetailFieldsSection(
               label = { Text("Referencia del comprobante") },
               placeholder = { Text("FACT/CHK-001") },
               isError = state.referenceNoError != null,
-              supportingText = { state.referenceNoError?.let { Text(it) } },
+              supportingText = {
+                Text(state.referenceNoError ?: "Se genera automáticamente si lo dejas vacío.")
+              },
               shape = fieldShape,
               colors = fieldColors,
               singleLine = true,
