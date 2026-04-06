@@ -7,9 +7,9 @@ actual typealias Decimal = BigDecimal
 
 actual fun bd(value: String): Decimal = BigDecimal(value)
 
-actual fun bd(value: Double): Decimal = BigDecimal(value)
+actual fun bd(value: Double): Decimal = BigDecimal(value.toString())
 
-actual fun db(value: Float): Decimal = BigDecimal(value.toDouble())
+actual fun db(value: Float): Decimal = BigDecimal(value.toString())
 
 actual fun Decimal.coerceAtLeastZero(): Decimal =
     if (this < BigDecimal.ZERO) BigDecimal.ZERO else this

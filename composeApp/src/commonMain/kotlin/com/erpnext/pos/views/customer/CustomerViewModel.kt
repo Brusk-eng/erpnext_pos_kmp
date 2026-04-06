@@ -33,14 +33,23 @@ import com.erpnext.pos.domain.usecases.PartialReturnInput
 import com.erpnext.pos.domain.usecases.PartialReturnUseCase
 import com.erpnext.pos.domain.usecases.PushPendingCustomersUseCase
 import com.erpnext.pos.domain.usecases.RebuildCustomerSummariesUseCase
+import com.erpnext.pos.domain.printing.usecase.PrintReceiptInput
+import com.erpnext.pos.domain.printing.usecase.PrintReceiptUseCase
+import com.erpnext.pos.domain.repositories.printing.IPrinterProfileRepository
 import com.erpnext.pos.domain.utils.UUIDGenerator
 import com.erpnext.pos.localSource.dao.CompanyDao
 import com.erpnext.pos.localSource.dao.ModeOfPaymentDao
 import com.erpnext.pos.localSource.dao.PosProfilePaymentMethodDao
 import com.erpnext.pos.localSource.entities.ModeOfPaymentEntity
 import com.erpnext.pos.localSource.entities.SalesInvoiceWithItemsAndPayments
+import com.erpnext.pos.localSource.preferences.GeneralPreferences
+import com.erpnext.pos.localSource.preferences.LanguagePreferences
 import com.erpnext.pos.localSource.preferences.ReturnPolicyPreferences
+import com.erpnext.pos.localization.AppLanguage
+import com.erpnext.pos.printing.templates.buildPendingInvoicePaymentReceipt
+import com.erpnext.pos.printing.templates.ReceiptTemplateMetadata
 import com.erpnext.pos.remoteSource.mapper.toDto
+import com.erpnext.pos.utils.AppLogger
 import com.erpnext.pos.utils.NetworkMonitor
 import com.erpnext.pos.utils.buildPaymentModeDetailMap
 import com.erpnext.pos.utils.formatDoubleToString
@@ -61,18 +70,21 @@ import io.ktor.util.date.getTimeMillis
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.ExperimentalTime
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val REFUND_FUNDS_TOLERANCE = 0.009
 
@@ -105,6 +117,10 @@ class CustomerViewModel(
     private val cancelSalesInvoiceUseCase: CancelSalesInvoiceUseCase,
     private val partialReturnUseCase: PartialReturnUseCase,
     private val networkMonitor: NetworkMonitor,
+    private val generalPreferences: GeneralPreferences,
+    private val languagePreferences: LanguagePreferences,
+    private val printReceiptUseCase: PrintReceiptUseCase,
+    private val printerProfileRepository: IPrinterProfileRepository,
     private val returnPolicyPreferences: ReturnPolicyPreferences,
 ) : BaseViewModel() {
 
@@ -158,6 +174,7 @@ class CustomerViewModel(
   private val paymentIdCache: MutableMap<String, String> = mutableMapOf()
   private var paymentRateCacheCurrency: String? = null
   private var paymentRateCache: MutableMap<String, Double> = mutableMapOf()
+  private var currentLanguage: AppLanguage = AppLanguage.Spanish
 
   private fun buildPaymentState(
       isSubmitting: Boolean = false,
@@ -220,16 +237,23 @@ class CustomerViewModel(
     preloadPaymentState()
     loadDialogData()
     viewModelScope.launch {
-      returnPolicyPreferences.settings.collect { settings -> _returnPolicy.value = settings }
+      languagePreferences.language.collect { language -> currentLanguage = language }
     }
     viewModelScope.launch {
+      returnPolicyPreferences.settings.collect { settings -> _returnPolicy.value = settings }
+    }
+    viewModelScope.launch(Dispatchers.Default) {
       if (!didRebuildSummaries) {
         didRebuildSummaries = true
         runCatching { rebuildCustomerSummariesUseCase(Unit) }
       }
     }
-    combine(searchFlow, stateFlowFilter) { q, s -> q to s }
+    combine(
+            searchFlow.map { it?.trim()?.takeIf { value -> value.isNotEmpty() } },
+            stateFlowFilter,
+        ) { q, s -> q to s }
         .debounce(250)
+        .distinctUntilChanged()
         .onEach { (q, s) -> fetchAllCustomers(q, s) }
         .launchIn(viewModelScope)
 
@@ -238,34 +262,38 @@ class CustomerViewModel(
 
   private fun loadDialogData() {
     viewModelScope.launch {
-      val groups = runCatching { fetchCustomerGroupsUseCase() }.getOrElse { emptyList() }
-      val territories = runCatching { fetchTerritoriesUseCase() }.getOrElse { emptyList() }
-      val paymentTerms = runCatching { fetchPaymentTermsUseCase(null) }.getOrElse { emptyList() }
-      val companies =
-          runCatching {
-                companyDao.getAll().map {
-                  CompanyBO(
-                      company = it.companyName,
-                      defaultCurrency = it.defaultCurrency,
-                      country = it.country,
-                      ruc = it.taxId,
-                  )
-                }
-              }
-              .getOrElse { emptyList() }
+      val dialogData =
+          withContext(Dispatchers.Default) {
+            val groups = runCatching { fetchCustomerGroupsUseCase() }.getOrElse { emptyList() }
+            val territories = runCatching { fetchTerritoriesUseCase() }.getOrElse { emptyList() }
+            val paymentTerms = runCatching { fetchPaymentTermsUseCase(null) }.getOrElse { emptyList() }
+            val companies =
+                runCatching {
+                      companyDao.getAll().map {
+                        CompanyBO(
+                            company = it.companyName,
+                            defaultCurrency = it.defaultCurrency,
+                            country = it.country,
+                            ruc = it.taxId,
+                        )
+                      }
+                    }
+                    .getOrElse { emptyList() }
+            CustomerDialogDataState(
+                customerGroups = groups,
+                territories = territories,
+                paymentTerms = paymentTerms,
+                companies = companies,
+            )
+          }
       _dialogDataState.value =
-          CustomerDialogDataState(
-              customerGroups = groups,
-              territories = territories,
-              paymentTerms = paymentTerms,
-              companies = companies,
-          )
+          dialogData
     }
   }
 
   private fun preloadPaymentState() {
     viewModelScope.launch {
-      val paymentModes = resolvePaymentModesForState()
+      val paymentModes = withContext(Dispatchers.Default) { resolvePaymentModesForState() }
       _paymentState.value =
           buildPaymentState(
               modeTypes = paymentModeDetails,
@@ -276,18 +304,27 @@ class CustomerViewModel(
   }
 
   fun fetchAllCustomers(query: String? = null, state: String? = null) {
-    _stateFlow.value = CustomerState.Loading
+    if (_stateFlow.value !is CustomerState.Success) {
+      _stateFlow.value = CustomerState.Loading
+    }
 
     customersJob?.cancel()
     customersJob =
         executeUseCase(
             action = {
-              // pequeña espera para evitar parpadeos al cambiar filtros
-              delay(120)
-              val input = CustomerQueryInput(query, state)
-              _customersPagingFlow.value = fetchCustomersUseCase.invoke(input)
-              val totalCount = fetchCustomersUseCase.count(input)
-              val pendingCount = fetchCustomersUseCase.countPending(input)
+              val customersResult =
+                  withContext(Dispatchers.Default) {
+                    val input = CustomerQueryInput(query, state)
+                    Triple(
+                        fetchCustomersUseCase.invoke(input),
+                        fetchCustomersUseCase.count(input),
+                        fetchCustomersUseCase.countPending(input),
+                    )
+                  }
+              val pagingFlow = customersResult.first
+              val totalCount = customersResult.second
+              val pendingCount = customersResult.third
+              _customersPagingFlow.value = pagingFlow
               _stateFlow.value =
                   if (totalCount == 0) {
                     CustomerState.Empty
@@ -353,13 +390,7 @@ class CustomerViewModel(
       paymentModeDetails = buildPaymentModeDetailMap(modeDefinitions)
 
       val paymentModeCurrencyByMode = buildMap {
-        modeDefinitions.forEach { def ->
-          val currency = def.currency?.trim()?.uppercase().orEmpty()
-          if (currency.isNotBlank()) {
-            put(def.modeOfPayment, currency)
-            put(def.name, currency)
-          }
-        }
+        putAll(buildPaymentModeCurrencyMap(modeDefinitions))
       }
 
       _paymentState.value =
@@ -471,13 +502,12 @@ class CustomerViewModel(
                   )
 
           val cacheKey =
-              listOf(
-                      invoiceId.trim(),
-                      modeOfPayment.trim(),
-                      enteredCurrency.trim().uppercase(),
-                      roundToCurrency(enteredAmount).toString(),
-                  )
-                  .joinToString("|")
+              buildPaymentReferenceCacheKey(
+                  invoiceId = invoiceId,
+                  modeOfPayment = modeOfPayment,
+                  enteredCurrency = enteredCurrency,
+                  enteredAmount = enteredAmount,
+              )
           val resolvedReference =
               referenceNumber.takeIf { it.isNotBlank() }
                   ?: paymentIdCache.getOrPut(cacheKey) { "POSPAY-${UUIDGenerator().newId()}" }
@@ -567,8 +597,30 @@ class CustomerViewModel(
               }
 
           val finalMessage = listOfNotNull(baseMessage, changeText).joinToString(" ")
+          val printFeedback =
+              tryPrintPendingInvoicePaymentReceipt(
+                  invoiceId = invoiceLabel,
+                  amount = enteredAmount,
+                  currencyCode = normalizeCurrency(enteredCurrency),
+                  modeOfPayment = modeOfPayment,
+                  referenceNo = resolvedReference,
+                  notes = null,
+                  companyName = context.company,
+                  cashierName =
+                      context.cashier.fullName
+                          .takeIf { it.isNotBlank() }
+                          ?: context.cashier.username.takeIf { it.isNotBlank() }
+                          ?: context.username,
+                  customerName = customer.customerName.ifBlank { customer.name },
+                  posProfileId = context.profileName,
+                  logoUrl = context.cashier.image,
+                  pendingAfterPayment = (outstandingRc - appliedRc).coerceAtLeast(0.0),
+              )
 
-          loadOutstandingInvoices(customerId, successMessage = finalMessage)
+          loadOutstandingInvoices(
+              customerId,
+              successMessage = listOf(finalMessage, printFeedback).filter { it.isNotBlank() }.joinToString(" ")
+          )
           // Forzamos refresco inmediato de la lista principal para reflejar nuevos saldos.
           fetchAllCustomers(searchFilter, selectedState)
         },
@@ -586,6 +638,63 @@ class CustomerViewModel(
 
   suspend fun loadInvoiceLocal(invoiceId: String): SalesInvoiceWithItemsAndPayments? {
     return fetchSalesInvoiceWithItemsUseCase(invoiceId)
+  }
+
+  private suspend fun tryPrintPendingInvoicePaymentReceipt(
+      invoiceId: String,
+      amount: Double,
+      currencyCode: String,
+      modeOfPayment: String,
+      referenceNo: String?,
+      notes: String?,
+      companyName: String? = null,
+      cashierName: String? = null,
+      customerName: String? = null,
+      posProfileId: String? = null,
+      logoUrl: String? = null,
+      pendingAfterPayment: Double? = null,
+  ): String {
+    val printerEnabled = generalPreferences.printerEnabled.first()
+    if (!printerEnabled) return ""
+
+    val defaultPrinter = printerProfileRepository.getDefaultProfile() ?: return ""
+    val receipt =
+        buildPendingInvoicePaymentReceipt(
+            invoiceId = invoiceId,
+            amount = amount,
+            currencyCode = currencyCode,
+            modeOfPayment = modeOfPayment,
+            referenceNo = referenceNo,
+            notes = notes,
+            pendingAfterPayment = pendingAfterPayment,
+            language = currentLanguage,
+            metadata =
+                ReceiptTemplateMetadata(
+                    companyName = companyName,
+                    cashierName = cashierName,
+                    customerName = customerName,
+                    posProfileId = posProfileId,
+                    logoUrl = logoUrl,
+                ),
+        )
+
+    return runCatching {
+          printReceiptUseCase(
+              PrintReceiptInput(
+                  profileId = defaultPrinter.id,
+                  document = receipt,
+              )
+          ).getOrThrow()
+          "Comprobante impreso en ${defaultPrinter.name}."
+        }
+        .getOrElse { error ->
+          AppLogger.warn(
+              "CustomerViewModel.tryPrintPendingInvoicePaymentReceipt failed",
+              error,
+              reportToSentry = false,
+          )
+          "Pago registrado, pero no se pudo imprimir: ${error.message ?: "error desconocido"}."
+        }
   }
 
   fun downloadInvoicePdf(
@@ -882,6 +991,12 @@ class CustomerViewModel(
       reason: String?,
   ): String? {
     val policy = returnPolicyPreferences.get()
+    val invoice =
+        if (policy.maxDaysAfterInvoice > 0 || (applyRefund && policy.requirePaidInvoiceForRefund)) {
+          fetchSalesInvoiceLocalUseCase(invoiceId)
+        } else {
+          null
+        }
     if (isPartial && !policy.allowPartialReturns) {
       return "Los retornos parciales están deshabilitados por política."
     }
@@ -895,7 +1010,6 @@ class CustomerViewModel(
       return "Los reembolsos están deshabilitados por política."
     }
     if (policy.maxDaysAfterInvoice > 0) {
-      val invoice = fetchSalesInvoiceLocalUseCase(invoiceId)
       val invoiceMillis = parseErpDateTimeToEpochMillis(invoice?.postingDate)
       val now = Clock.System.now().toEpochMilliseconds()
       if (invoiceMillis != null) {
@@ -906,57 +1020,12 @@ class CustomerViewModel(
       }
     }
     if (applyRefund && policy.requirePaidInvoiceForRefund) {
-      val invoice = fetchSalesInvoiceLocalUseCase(invoiceId)
       val hasPayments = (invoice?.paidAmount ?: 0.0) > 0.0
       if (!hasPayments) {
         return "Solo se permite reembolso si la factura tiene pagos."
       }
     }
     return null
-  }
-
-  private data class ReturnPreview(
-      val currency: String,
-      val returnTotal: Double,
-      val projectedOutstanding: Double?,
-  )
-
-  private fun buildPartialReturnPreview(
-      invoice: SalesInvoiceWithItemsAndPayments?,
-      requested: Map<String, Double>,
-  ): ReturnPreview? {
-    invoice ?: return null
-    val requestedRemaining = requested.mapValues { it.value.coerceAtLeast(0.0) }.toMutableMap()
-    var total = 0.0
-    invoice.items.forEach { item ->
-      val desired = (requestedRemaining[item.itemCode] ?: 0.0).coerceAtLeast(0.0)
-      if (desired <= 0.0) return@forEach
-      val soldQty = kotlin.math.abs(item.qty)
-      val qtyToReturn = desired.coerceAtMost(soldQty)
-      if (qtyToReturn <= 0.0) return@forEach
-      requestedRemaining[item.itemCode] = (desired - qtyToReturn).coerceAtLeast(0.0)
-      val perUnit = if (item.qty != 0.0) item.amount / item.qty else item.rate
-      total += kotlin.math.abs(perUnit) * qtyToReturn
-    }
-    val outstanding = invoice.invoice.outstandingAmount.coerceAtLeast(0.0)
-    return ReturnPreview(
-        currency = normalizeCurrency(invoice.invoice.currency),
-        returnTotal = roundToCurrency(total),
-        projectedOutstanding = roundToCurrency((outstanding - total).coerceAtLeast(0.0)),
-    )
-  }
-
-  private fun buildFullReturnPreview(
-      invoice: com.erpnext.pos.localSource.entities.SalesInvoiceEntity?
-  ): ReturnPreview? {
-    invoice ?: return null
-    val total = invoice.grandTotal.coerceAtLeast(0.0)
-    val outstanding = invoice.outstandingAmount.coerceAtLeast(0.0)
-    return ReturnPreview(
-        currency = normalizeCurrency(invoice.currency),
-        returnTotal = roundToCurrency(total),
-        projectedOutstanding = roundToCurrency((outstanding - total).coerceAtLeast(0.0)),
-    )
   }
 
   private suspend fun ensureRefundFunds(
@@ -1000,41 +1069,4 @@ class CustomerViewModel(
     )
   }
 
-  private fun buildReturnPostMessage(
-      creditNoteName: String?,
-      preview: ReturnPreview?,
-      applyRefund: Boolean,
-      isPartial: Boolean,
-  ): String {
-    val base =
-        when {
-          !creditNoteName.isNullOrBlank() && isPartial ->
-              "Retorno parcial registrado como $creditNoteName."
-
-          !creditNoteName.isNullOrBlank() -> "Retorno registrado como $creditNoteName."
-          isPartial -> "Retorno parcial registrado."
-          else -> "Retorno registrado."
-        }
-    val destination = if (applyRefund) "reembolso" else "crédito a favor"
-    val projection =
-        preview
-            ?.let {
-              " Monto devuelto estimado: ${formatMoney(it.currency, it.returnTotal)}. " +
-                  "Saldo estimado tras retorno: ${
-                                formatMoney(
-                                    it.currency,
-                                    it.projectedOutstanding ?: 0.0,
-                                )
-                            }."
-            }
-            .orEmpty()
-    val notice =
-        " Nota: en ERPNext el saldo visible puede mantenerse temporalmente hasta la conciliación o cierre de caja."
-    return "$base Se aplicó como $destination.$projection$notice"
-  }
-
-  private fun formatMoney(currency: String, amount: Double): String {
-    val symbol = currency.toCurrencySymbol().ifBlank { currency }
-    return "$symbol ${formatDoubleToString(amount, 2)}"
-  }
 }

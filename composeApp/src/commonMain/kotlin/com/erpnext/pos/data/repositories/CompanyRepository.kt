@@ -22,9 +22,6 @@ private fun CompanyDto.toEntity(): CompanyEntity {
       defaultCurrency = defaultCurrency,
       country = country,
       taxId = taxId,
-      defaultReceivableAccount = defaultReceivableAccount,
-      defaultReceivableAccountCurrency = defaultReceivableAccountCurrency,
-      isDeleted = false,
   )
 }
 
@@ -36,10 +33,6 @@ class CompanyRepository(
   override suspend fun getCompanyInfo(): CompanyBO {
     val companies = api.getCompanyInfo()
     companies.forEach { companyDao.insert(it.toEntity()) }
-    val names = companies.map { it.company }
-    val ids = names.ifEmpty { listOf("__empty__") }
-    companyDao.hardDeleteDeletedNotIn(ids)
-    companyDao.softDeleteNotIn(ids)
     val first =
         companies.firstOrNull()
             ?: companyDao.getCompanyInfo()?.let { local ->
@@ -47,9 +40,7 @@ class CompanyRepository(
                   company = local.companyName,
                   defaultCurrency = local.defaultCurrency,
                   country = local.country,
-                  taxId = local.taxId,
-                  defaultReceivableAccount = local.defaultReceivableAccount,
-                  defaultReceivableAccountCurrency = local.defaultReceivableAccountCurrency,
+                  taxId = local.taxId
               )
             }
             ?: throw IllegalStateException("Company info not available")

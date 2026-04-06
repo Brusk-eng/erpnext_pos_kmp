@@ -22,6 +22,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,8 +35,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
-import coil3.compose.SubcomposeAsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.erpnext.pos.domain.models.ItemBO
@@ -70,6 +73,14 @@ fun ProductCard(
   val displayLabel = formatAmount(baseCurrency.toCurrencySymbol(), displayPrice)
   val colorLabel = product.brand?.takeIf { it.isNotBlank() } ?: "--"
   val sizeLabel = "--"
+  var isImageLoading by remember(product.image) { mutableStateOf(product.image?.isNotBlank() == true) }
+  val imageRequest =
+      remember(product.image) {
+        ImageRequest.Builder(context)
+            .data(product.image?.ifBlank { "https://placehold.co/600x400" })
+            .crossfade(true)
+            .build()
+      }
 
   val cardShape = RoundedCornerShape(18.dp)
   Card(
@@ -87,31 +98,21 @@ fun ProductCard(
         verticalAlignment = Alignment.CenterVertically,
     ) {
       Box(modifier = Modifier.width(imageWidth).fillMaxHeight().clip(cardShape)) {
-        SubcomposeAsyncImage(
-            model =
-                remember(product.image) {
-                  ImageRequest.Builder(context)
-                      .data(product.image?.ifBlank { "https://placehold.co/600x400" })
-                      .crossfade(true)
-                      .build()
-                },
+        AsyncImage(
+            model = imageRequest,
             contentDescription = product.name,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
-            loading = {
-              Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(modifier = Modifier.size(24.dp))
-              }
-            },
-            error = {
-              AsyncImage(
-                  model = "https://placehold.co/600x400",
-                  contentScale = ContentScale.Crop,
-                  contentDescription = "placeholder",
-                  modifier = Modifier.fillMaxSize(),
-              )
-            },
+            onState = { state -> isImageLoading = state is AsyncImagePainter.State.Loading },
         )
+        if (isImageLoading) {
+          Box(
+              modifier = Modifier.fillMaxSize(),
+              contentAlignment = Alignment.Center,
+          ) {
+            CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+          }
+        }
       }
 
       Column(

@@ -2,7 +2,7 @@
 
 ---
 
-# 1. Mission & Non-Negotiables
+# 1. Mission & Non-Negotiable
 
 This repository implements an offline-first POS built with Kotlin Multiplatform + Compose,
 integrated with ERPNext/Frappe APIs.
@@ -16,6 +16,7 @@ Primary success criteria:
 - No secrets in logs
 - No production data in fixtures
 - Small, reviewable, low-risk changes
+- Cross-platform reliability over platform-specific shortcuts
 
 This project prioritizes reliability, predictability, and architectural clarity over speed of
 feature delivery.
@@ -60,15 +61,11 @@ Domain must NOT depend on:
 - Ktor responses
 - Platform APIs
 
----
-
 ### Data Layer (implementations)
 
 - `data/repositories/`
 - `data/mappers/`
 - `data/adapters/`
-
----
 
 ### Local Layer
 
@@ -77,8 +74,6 @@ Domain must NOT depend on:
 - `localSource/preferences/`
 - `localSource/datasources/`
 
----
-
 ### Remote Layer
 
 - `remoteSource/api/`
@@ -86,8 +81,6 @@ Domain must NOT depend on:
 - `remoteSource/oauth/`
 - `remoteSource/sdk/`
 - `remoteSource/paging/`
-
----
 
 ### Sync Layer
 
@@ -98,28 +91,56 @@ This is a high-risk zone. All changes require strict validation.
 
 ---
 
-# 4. Working Agreement (Execution Protocol)
+# 4. Multiplatform & Form-Factor Discipline
+
+Supported targets:
+
+- Android
+- iOS
+- Desktop (Windows, Linux, macOS)
+
+Supported form factors:
+
+- Phone
+- Tablet
+- Desktop
+
+Non-negotiables:
+
+- Shared business logic must remain in shared code unless platform-specific behavior is truly required.
+- Platform-specific implementations must stay behind explicit abstractions.
+- Do not leak Android/iOS/Desktop APIs into shared code without an existing approved boundary.
+- UI changes must consider compact, medium, and expanded layouts.
+- Desktop interaction must consider keyboard, pointer, hover, and window resizing.
+- Mobile interaction must consider touch ergonomics, orientation changes, and limited space.
+- Avoid hardcoded dimensions that break on tablet or desktop layouts.
+- Prefer adaptive layouts over platform forks unless behavior genuinely differs.
+
+---
+
+# 5. Working Agreement (Execution Protocol)
 
 Before coding:
 
-1. Identify affected modules (UI/domain/sync/local/remote).
+1. Identify affected modules (UI/domain/sync/local/remote/platform).
 2. Provide a short technical plan (max 8 bullets).
-3. Identify risks (money, auth, sync, schema).
+3. Identify risks (money, auth, sync, schema, printing, platform compatibility).
 4. Keep change scope minimal (KISS).
+5. Search existing patterns before introducing a new one.
 
 After coding:
 
 1. Run mandatory checks.
 2. Add or update tests for high-risk logic.
 3. Provide:
-
-- Summary of changes
-- Verification steps
-- Risk assessment
+  - Summary of changes
+  - Verification steps
+  - Risk assessment
+  - Rollback notes when relevant
 
 ---
 
-# 5. Build & Quality Gates
+# 6. Build & Quality Gates
 
 From repository root:
 
@@ -147,11 +168,18 @@ If unsure:
 
 - `./gradlew tasks`
 
-No change is complete unless quality gates pass.
+No change is complete unless relevant quality gates pass.
+
+Prefer smallest valid verification scope first:
+
+1. compile affected module/target
+2. run focused tests
+3. run detekt/lint if impacted
+4. run broader build/test sweep only when risk justifies it
 
 ---
 
-# 6. SOLID Enforcement Rules
+# 7. SOLID Enforcement Rules
 
 Single Responsibility:
 
@@ -179,7 +207,7 @@ Dependency Inversion:
 
 ---
 
-# 7. KISS Enforcement Rules
+# 8. KISS Enforcement Rules
 
 - Prefer smallest viable solution
 - Avoid premature abstraction
@@ -193,7 +221,7 @@ Do not invent new patterns unless justified.
 
 ---
 
-# 8. Sync Rules (Offline-First Critical Section)
+# 9. Sync Rules (Offline-First Critical Section)
 
 Canonical flow:
 
@@ -212,49 +240,56 @@ Non-negotiables:
 - Capture ERPNext document ID/name
 - Never delete local data without strategy (soft delete / tombstones)
 - No silent conflict resolution
+- Never assume network availability for critical POS flows
+- Local persistence is the operational source of truth while offline
 
 All sync modifications require:
 
 - Retry reasoning
 - Idempotency reasoning
 - Explicit logging strategy
+- Conflict handling reasoning
+- Partial failure reasoning
 
 ---
 
-# 9. Money & Multi-Currency Discipline
+# 10. Money & Multi-Currency Discipline
 
 - Never use Double for monetary calculations
-- Prefer integer minor units or precise decimal strategy
+- Prefer integer minor units or precise decimal strategy already used by the project
 - Apply rounding only at defined boundaries:
-    - line
-    - tax
-    - total
+  - line
+  - tax
+  - total
 - FX rate must be explicit
 - Never mix currency contexts silently
+- Printed totals must match persisted totals
+- Payment allocation must remain deterministic
 
 Any change touching:
 
-- payment/
-- paymententry/
-- billing/
-- invoice/
+- `payment/`
+- `paymententry/`
+- `billing/`
+- `invoice/`
 
 Requires:
 
 - Unit test for rounding edge case
 - FX scenario validation
+- Verification that totals shown, persisted, synced, and printed remain aligned
 
 ---
 
-# 10. Auth & OAuth Rules
+# 11. Auth & OAuth Rules
 
 - Never log tokens or secrets
 - Always sanitize error logs
 - Explicit token refresh handling
 - Clear separation between:
-    - Session validation
-    - Token refresh
-    - API call retry
+  - Session validation
+  - Token refresh
+  - API call retry
 
 Auth failures must:
 
@@ -263,7 +298,83 @@ Auth failures must:
 
 ---
 
-# 11. Logging & Observability
+# 12. Database & Local Persistence Rules
+
+For Room/SQLite changes:
+
+- Inspect entities, DAO queries, mappers, and migrations
+- Preserve schema compatibility or include a safe migration
+- Evaluate nullability, defaults, and existing-installation impact
+- Verify indexes for high-frequency lookup paths
+- Avoid broad or expensive queries in hot POS flows
+- Do not move heavy database work to the UI thread
+
+Any schema-related change requires:
+
+- Migration reasoning
+- Data preservation reasoning
+- Verification steps for existing local data
+
+---
+
+# 13. Networking & Remote Contract Rules
+
+For Ktor/API changes:
+
+- Preserve backward compatibility unless explicitly told otherwise
+- Inspect DTOs, serializers, mappers, auth flow, and error handling
+- Keep API contracts explicit
+- Do not couple UI directly to raw API models
+- Prefer mapping into domain or stable internal models before business use
+- Handle offline, timeout, auth, and server failures explicitly
+
+---
+
+# 14. UI, State, and Performance Rules
+
+- Keep business rules out of composables
+- Keep UI state explicit and testable
+- Avoid hidden side effects in presentation logic
+- Protect startup time, cart responsiveness, search responsiveness, and checkout latency
+- Avoid unnecessary recompositions, repeated DB queries, duplicated state, and large in-memory transforms in hot paths
+- Be careful with Flow, coroutine scope, and state propagation
+- Prefer adaptive layouts and reusable UI patterns already established in the repo
+
+Any change affecting these screens is medium-to-high risk:
+
+- product list
+- cart
+- checkout
+- payments
+- invoice detail
+- sync status
+- printer settings
+
+---
+
+# 15. Printing & Hardware Rules
+
+Printing is a critical operational feature.
+
+Any change affecting printers, tickets, or hardware integrations must verify:
+
+- formatting consistency
+- connection lifecycle
+- reconnection behavior
+- timeout handling
+- persisted configuration compatibility
+- platform compatibility across Android/Desktop where applicable
+- safe fallback/error states
+
+Non-negotiables:
+
+- Do not tightly couple printing logic to one brand or SDK unless explicitly requested
+- Keep receipt/ticket generation separate from transport concerns
+- Preserve deterministic output for totals, taxes, currency, and line items
+
+---
+
+# 16. Logging & Observability
 
 Logs must help diagnose:
 
@@ -271,6 +382,8 @@ Logs must help diagnose:
 - Sync retries
 - ERPNext server errors (sanitized)
 - Mapping errors
+- Printer failures
+- Queue or reconciliation failures
 
 Never log:
 
@@ -278,10 +391,11 @@ Never log:
 - Refresh tokens
 - Passwords
 - Full PII
+- Sensitive financial secrets beyond what is operationally necessary
 
 ---
 
-# 12. Documentation & Commenting Policy
+# 17. Documentation & Commenting Policy
 
 Goal: clarity without noise.
 
@@ -293,6 +407,7 @@ Goal: clarity without noise.
 - Domain models with invariants
 - Sync idempotency strategy
 - Business rules (taxes, FX, rounding)
+- Platform-specific adapters when behavior is non-obvious
 
 ### Comment the WHY, not the WHAT.
 
@@ -314,32 +429,36 @@ Long explanations belong in:
 
 ---
 
-# 13. Risk Classification
+# 18. Risk Classification
 
 Safe changes:
 
 - UI improvements within one feature
 - Localized bug fixes
 - Small mapper corrections
+- Non-behavioral cleanup in one file
 
 Risky changes:
 
-- sync/
-- domain/sync/
-- remoteSource/oauth/
+- `sync/`
+- `domain/sync/`
+- `remoteSource/oauth/`
 - multi-currency flows
 - schema changes
 - database entities
+- printer/device integrations
+- shared abstractions that affect multiple targets
 
 Risky changes require:
 
 - Explicit reasoning
-- Test coverage
+- Test coverage where feasible
 - Verification steps
+- Rollback notes when relevant
 
 ---
 
-# 14. Output Format (Mandatory)
+# 19. Output Format (Mandatory)
 
 Responses must follow:
 
@@ -354,34 +473,47 @@ Prefer action over narrative.
 
 ---
 
-# 15. Do NOT Do List
+# 20. Shell & Repo Hygiene
 
-- Do not introduce new libraries without justification
-- Do not refactor unrelated code
-- Do not rename packages broadly
-- Do not change contracts without updating all callers
-- Do not hardcode environment URLs
-- Do not expose secrets
+Prefer RTK wrappers for noisy commands when available:
+
+- `rtk git diff`
+- `rtk grep`
+- `rtk ls`
+
+Do NOT:
+
+- introduce new libraries without justification
+- refactor unrelated code
+- rename packages broadly
+- change contracts without updating all callers
+- hardcode environment URLs
+- expose secrets
+- commit, push, rebase, or delete branches unless explicitly requested
+
+Prefer small, reviewable patches over broad rewrites.
 
 ---
 
-# 16. Definition of Done
+# 21. Definition of Done
 
-- Builds successfully
-- Tests pass
-- No new detekt violations
+- Builds successfully for the impacted scope
+- Tests pass for the impacted scope
+- No new detekt violations introduced
 - Critical flows validated
 - Logs are meaningful and sanitized
 - Change scope is minimal and justified
+- Cross-platform behavior remains consistent for the affected feature
 
 ---
 
-# 17. If Uncertain
+# 22. If Uncertain
 
 - Search existing implementations first
 - Follow existing patterns
-- Ask for smallest missing detail
+- Ask for the smallest missing detail only if necessary
 - Default to minimal change strategy
+- Choose safety over speed in money, sync, auth, schema, and printing paths
 
 ---
 

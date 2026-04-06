@@ -10,138 +10,333 @@ import com.erpnext.pos.utils.AppSentry
 import com.erpnext.pos.utils.NetworkMonitor
 import com.erpnext.pos.utils.TokenUtils
 import com.erpnext.pos.views.CashBoxManager
-import kotlin.time.ExperimentalTime
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.concurrent.Volatile
+import kotlin.time.Clock
 
-@OptIn(ExperimentalTime::class)
-class SessionRefresher(
+/**
+ * Contexto consolidado de sesión.
+ *
+ * Contiene únicamente datos ya evaluados o preparados para que la policy
+ * no tenga que consultar dependencias externas directamente.
+ */
+data class SessionContext(
+    val authInProgress: Boolean,
+    val isOnline: Boolean,
+    val idToken: String?,
+    val accessToken: String?,
+    val refreshToken: String?,
+    val hasTokens: Boolean,
+    val accessTokenPresent: Boolean,
+    val secondsLeft: Long?,
+    val isNearExpiry: Boolean,
+    val issuerMatchesCurrentSite: Boolean?,
+)
+
+/**
+ * Decisión de negocio sobre el estado actual de la sesión.
+ */
+sealed interface SessionDecision {
+    data class AllowCurrentSession(val reason: String) : SessionDecision
+    data class AllowOffline(val reason: String) : SessionDecision
+    data class Invalidate(val reason: String) : SessionDecision
+    data object Refresh : SessionDecision
+}
+
+/**
+ * Resultado tipado de la sesión.
+ *
+ * La fachada pública mantiene Boolean para compatibilidad, pero internamente
+ * esto permite más observabilidad y crecimiento futuro.
+ */
+sealed interface SessionResult {
+    data object Valid : SessionResult
+    data object Invalidated : SessionResult
+    data class AllowedTemporarily(val reason: String) : SessionResult
+}
+
+/**
+ * Construye el contexto a partir de estado local, conectividad y token store.
+ */
+class SessionContextProvider(
+    private val authFlowState: AuthFlowState?,
+    private val networkMonitor: NetworkMonitor,
     private val tokenStore: TokenStore,
     private val apiService: APIService,
-    private val navigationManager: NavigationManager,
-    private val networkMonitor: NetworkMonitor,
-    private val cashBoxManager: Lazy<Any>? = null,
-    private val authFlowState: AuthFlowState? = null,
+    private val refreshThresholdSeconds: Long,
 ) {
-  private val mutex = Mutex()
-  private val refreshThresholdSeconds = 30 * 60L // 30 minutos
-  private var invalidated = false
-
-  suspend fun ensureValidSession(): Boolean =
-      mutex.withLock {
-        AppLogger.info("SessionRefresher.ensureValidSession start")
-        if (authFlowState?.inProgress?.value == true) {
-          AppLogger.info("SessionRefresher.ensureValidSession skipped (auth flow)")
-          return true
-        }
+    //TODO  codex resume 019d1c01-c6f6-7592-b348-6e0a54620111
+    suspend fun build(): SessionContext {
+        val authInProgress = authFlowState?.inProgress?.value == true
         val isOnline = networkMonitor.isConnected.first()
-        val tokens = tokenStore.load() ?: return if (isOnline) invalidateSession() else true
-        val idToken = tokens.id_token
-        if (!idToken.isNullOrBlank() && !apiService.isIdTokenIssuerBoundToCurrentSite(idToken)) {
-          val (issuer, site) = apiService.getIdTokenIssuerAndCurrentSite(idToken)
-          AppLogger.warn(
-              "SessionRefresher: token issuer mismatch, invalidating. issuer=$issuer currentSite=$site"
-          )
-          return invalidateSession()
-        }
+        val tokens = tokenStore.load()
+
+        val idToken = tokens?.id_token
+        val accessToken = tokens?.access_token
+        val refreshToken = tokens?.refresh_token?.takeIf { it.isNotBlank() }
+
+        val accessTokenPresent = !accessToken.isNullOrBlank()
+        val hasTokens =
+            !idToken.isNullOrBlank() ||
+                    !accessToken.isNullOrBlank() ||
+                    !refreshToken.isNullOrBlank()
 
         val secondsLeft = secondsToExpiry(idToken)
         val isNearExpiry = secondsLeft != null && secondsLeft <= refreshThresholdSeconds
 
-        if (!isOnline) {
-          // Offline: permitimos seguir, refrescaremos al reconectar
-          return true
-        }
+        val issuerMatchesCurrentSite =
+            if (!idToken.isNullOrBlank()) {
+                apiService.isIdTokenIssuerBoundToCurrentSite(idToken)
+            } else {
+                null
+            }
 
-        if (TokenUtils.isValid(idToken) && !isNearExpiry) {
-          AppLogger.info("SessionRefresher: token valid, skip refresh")
-          invalidated = false
-          return true
-        }
-        if (idToken.isNullOrBlank() && tokens.access_token.isNotBlank()) {
-          AppLogger.info("SessionRefresher: id_token missing, using access token session")
-          invalidated = false
-          return true
-        }
-        val refreshToken =
-            tokens.refresh_token?.takeIf { it.isNotBlank() }
-                ?: return if (
-                    TokenUtils.isValid(idToken) ||
-                        (idToken.isNullOrBlank() && tokens.access_token.isNotBlank())
-                ) {
-                  AppLogger.info("SessionRefresher: no refresh token, keep current session")
-                  true
-                } else {
-                  invalidateSession()
-                }
-
-        return try {
-          AppLogger.info(
-              "SessionRefresher: refreshing token " +
-                  "idTokenExpIn=${secondsLeft ?: -1}s " +
-                  "refreshToken=${maskTokenForLogs(refreshToken)}"
-          )
-          val refreshed = apiService.refreshToken(refreshToken)
-          tokenStore.save(refreshed)
-          val refreshedIdToken = refreshed.id_token
-          if (
-              !refreshedIdToken.isNullOrBlank() &&
-                  !apiService.isIdTokenIssuerBoundToCurrentSite(refreshedIdToken)
-          ) {
-            val (issuer, site) = apiService.getIdTokenIssuerAndCurrentSite(refreshedIdToken)
-            AppLogger.warn(
-                "SessionRefresher: refreshed token issuer mismatch, invalidating. issuer=$issuer currentSite=$site"
-            )
-            return invalidateSession()
-          }
-          invalidated = false
-          true
-        } catch (t: Throwable) {
-          AppSentry.capture(t, "SessionRefresher.refresh failed")
-          AppLogger.warn("SessionRefresher: refresh failed", t)
-          if (isRefreshTokenRejected(t)) {
-            AppLogger.warn("SessionRefresher: refresh rejected by server, invalidating")
-            return invalidateSession()
-          }
-          if (TokenUtils.isValid(idToken)) {
-            AppLogger.info("SessionRefresher: refresh failed but token still valid")
-            invalidated = false
-            true
-          } else if (idToken.isNullOrBlank() && tokens.access_token.isNotBlank()) {
-            AppLogger.info("SessionRefresher: refresh failed but access token is present")
-            invalidated = false
-            true
-          } else {
-            invalidateSession()
-          }
-        }
-      }
-
-  private suspend fun invalidateSession(): Boolean {
-    if (invalidated) return false
-    if (authFlowState?.inProgress?.value == true) {
-      AppLogger.info("SessionRefresher.invalidateSession skipped (auth flow)")
-      return false
+        return SessionContext(
+            authInProgress = authInProgress,
+            isOnline = isOnline,
+            idToken = idToken,
+            accessToken = accessToken,
+            refreshToken = refreshToken,
+            hasTokens = hasTokens,
+            accessTokenPresent = accessTokenPresent,
+            secondsLeft = secondsLeft,
+            isNearExpiry = isNearExpiry,
+            issuerMatchesCurrentSite = issuerMatchesCurrentSite,
+        )
     }
-    invalidated = true
-    AppLogger.warn("SessionRefresher: invalidating session -> Login")
-    tokenStore.clear()
-    (cashBoxManager?.value as? CashBoxManager)?.clearContext()
-    navigationManager.navigateTo(NavRoute.Login)
-    return false
-  }
-
-  private fun secondsToExpiry(idToken: String?): Long? {
-    if (idToken == null) return null
-    val claims = TokenUtils.decodePayload(idToken) ?: return null
-    val exp = claims["exp"]?.toString()?.toLongOrNull() ?: return null
-    val now = kotlin.time.Clock.System.now().epochSeconds
-    return exp - now
-  }
 }
 
+/**
+ * Reglas puras del dominio de sesión.
+ *
+ * No ejecuta side effects.
+ */
+class SessionPolicy(
+    private val isIdTokenValid: (String?) -> Boolean
+) {
+    fun evaluate(ctx: SessionContext): SessionDecision {
+        if (ctx.authInProgress) {
+            return SessionDecision.AllowCurrentSession("auth_in_progress")
+        }
+
+        if (!ctx.hasTokens) {
+            return if (ctx.isOnline) {
+                SessionDecision.Invalidate("online_without_tokens")
+            } else {
+                SessionDecision.AllowOffline("offline_without_tokens")
+            }
+        }
+
+        if (ctx.issuerMatchesCurrentSite == false) {
+            return SessionDecision.Invalidate("issuer_mismatch")
+        }
+
+        if (!ctx.isOnline) {
+            return SessionDecision.AllowOffline("offline_mode")
+        }
+
+        if (isIdTokenValid(ctx.idToken) && !ctx.isNearExpiry) {
+            return SessionDecision.AllowCurrentSession("id_token_valid_and_not_near_expiry")
+        }
+
+        if (ctx.idToken.isNullOrBlank() && ctx.accessTokenPresent) {
+            return SessionDecision.AllowCurrentSession("id_token_missing_but_access_token_present")
+        }
+
+        if (ctx.refreshToken.isNullOrBlank()) {
+            return if (
+                isIdTokenValid(ctx.idToken) ||
+                (ctx.idToken.isNullOrBlank() && ctx.accessTokenPresent)
+            ) {
+                SessionDecision.AllowCurrentSession("no_refresh_token_but_current_session_usable")
+            } else {
+                SessionDecision.Invalidate("no_refresh_token_and_session_not_usable")
+            }
+        }
+
+        return SessionDecision.Refresh
+    }
+}
+
+/**
+ * Encapsula la invalidación real de sesión.
+ *
+ * Aquí concentramos:
+ * - limpieza de tokens
+ * - cambio del estado invalidated
+ * - side effects del dominio/UI
+ */
+class SessionInvalidator(
+    private val tokenStore: TokenStore,
+    private val navigationManager: NavigationManager? = null,
+    private val cashBoxManager: CashBoxManager? = null,
+    private val onInvalidated: suspend () -> Unit = {},
+) {
+    @Volatile
+    var invalidated: Boolean = false
+        private set
+
+    suspend fun invalidate(reason: String = "unknown"): SessionResult {
+        AppLogger.warn("SessionInvalidator: invalidating session. reason=$reason")
+
+        runCatching { tokenStore.clear() }
+            .onFailure { AppLogger.warn("SessionInvalidator: token clear failed", it) }
+
+        runCatching {
+            cashBoxManager?.clearContext()
+            navigationManager?.navigateTo(NavRoute.Login)
+        }.onFailure {
+            AppLogger.warn("SessionInvalidator: cash box reset failed", it)
+        }
+
+        runCatching { onInvalidated() }
+            .onFailure { AppLogger.warn("SessionInvalidator: onInvalidated callback failed", it) }
+
+        invalidated = true
+        return SessionResult.Invalidated
+    }
+
+    fun markSessionHealthy() {
+        invalidated = false
+    }
+}
+
+/**
+ * Ejecuta side effects de acuerdo con la decisión tomada por la policy.
+ */
+class SessionExecutor(
+    private val apiService: APIService,
+    private val tokenStore: TokenStore,
+    private val invalidator: SessionInvalidator,
+    private val isIdTokenValid: (String?) -> Boolean,
+) {
+    suspend fun execute(decision: SessionDecision, ctx: SessionContext): SessionResult {
+        return when (decision) {
+            is SessionDecision.AllowCurrentSession -> {
+                AppLogger.info("SessionRefresher: allow current session. reason=${decision.reason}")
+                invalidator.markSessionHealthy()
+                SessionResult.Valid
+            }
+
+            is SessionDecision.AllowOffline -> {
+                AppLogger.info("SessionRefresher: allow offline. reason=${decision.reason}")
+                SessionResult.AllowedTemporarily(decision.reason)
+            }
+
+            is SessionDecision.Invalidate -> {
+                invalidator.invalidate(decision.reason)
+            }
+
+            SessionDecision.Refresh -> {
+                refresh(ctx)
+            }
+        }
+    }
+
+    private suspend fun refresh(ctx: SessionContext): SessionResult {
+        val refreshToken = ctx.refreshToken
+            ?: return invalidator.invalidate("refresh_requested_without_refresh_token")
+
+        return try {
+            AppLogger.info(
+                "SessionRefresher: refreshing token " +
+                        "idTokenExpIn=${ctx.secondsLeft ?: -1}s " +
+                        "refreshToken=${maskTokenForLogs(refreshToken)}"
+            )
+
+            val refreshed = apiService.refreshToken(refreshToken)
+            tokenStore.save(refreshed)
+
+            val refreshedIdToken = refreshed.id_token
+            if (
+                !refreshedIdToken.isNullOrBlank() &&
+                !apiService.isIdTokenIssuerBoundToCurrentSite(refreshedIdToken)
+            ) {
+                val (issuer, site) = apiService.getIdTokenIssuerAndCurrentSite(refreshedIdToken)
+                AppLogger.warn(
+                    "SessionRefresher: refreshed token issuer mismatch, invalidating. " +
+                            "issuer=$issuer currentSite=$site"
+                )
+                invalidator.invalidate("issuer_mismatch_after_refresh")
+            } else {
+                AppLogger.info("SessionRefresher: refresh successful")
+                invalidator.markSessionHealthy()
+                SessionResult.Valid
+            }
+        } catch (t: Throwable) {
+            handleRefreshFailure(t, ctx)
+        }
+    }
+
+    private suspend fun handleRefreshFailure(t: Throwable, ctx: SessionContext): SessionResult {
+        AppSentry.capture(t, "SessionExecutor.refresh failed")
+        AppLogger.warn("SessionExecutor: refresh failed", t)
+
+        return when {
+            isRefreshTokenRejected(t) -> {
+                AppLogger.warn("SessionExecutor: refresh token rejected by server")
+                invalidator.invalidate("refresh_rejected")
+            }
+
+            isIdTokenValid(ctx.idToken) -> {
+                AppLogger.info("SessionExecutor: refresh failed but id token still valid")
+                invalidator.markSessionHealthy()
+                SessionResult.Valid
+            }
+
+            ctx.idToken.isNullOrBlank() && ctx.accessTokenPresent -> {
+                AppLogger.info("SessionExecutor: refresh failed but access token is present")
+                invalidator.markSessionHealthy()
+                SessionResult.AllowedTemporarily("access_token_present_after_refresh_failure")
+            }
+
+            else -> {
+                invalidator.invalidate("refresh_failed_and_no_usable_session")
+            }
+        }
+    }
+}
+
+/**
+ * Fachada final.
+ *
+ * Mantiene el contrato actual con Boolean para no romper integración existente.
+ */
+class SessionRefresher(
+    private val mutex: Mutex = Mutex(),
+    private val contextProvider: SessionContextProvider,
+    private val policy: SessionPolicy,
+    private val executor: SessionExecutor,
+) {
+    suspend fun ensureValidSession(): Boolean =
+        when (ensureValidSessionResult()) {
+            SessionResult.Valid -> true
+            is SessionResult.AllowedTemporarily -> true
+            SessionResult.Invalidated -> false
+        }
+
+    suspend fun ensureValidSessionResult(): SessionResult =
+        mutex.withLock {
+            val ctx = contextProvider.build()
+            val decision = policy.evaluate(ctx)
+            executor.execute(decision, ctx)
+        }
+}
+
+private fun secondsToExpiry(idToken: String?): Long? {
+    if(idToken.isNullOrBlank()) return null
+
+    val claims = TokenUtils.decodePayload(idToken) ?: return null
+    val exp = claims["exp"]?.toString()?.toLongOrNull() ?: return null
+    val now = Clock.System.now().epochSeconds
+    return exp - now
+}
+/**
+ * Helper de logs para no imprimir tokens completos.
+ */
 private fun maskTokenForLogs(value: String?): String {
-  if (value.isNullOrBlank()) return "<empty>"
-  return "len=${value.length} ${value.take(8)}...${value.takeLast(6)}"
+    if (value.isNullOrBlank()) return "<empty>"
+    return "len=${value.length} ${value.take(8)}...${value.takeLast(6)}"
 }

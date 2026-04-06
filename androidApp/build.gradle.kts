@@ -1,11 +1,9 @@
-import io.gitlab.arturbosch.detekt.Detekt
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
   alias(libs.plugins.androidApplication)
   alias(libs.plugins.composeMultiplatform)
   alias(libs.plugins.composeCompiler)
-  alias(libs.plugins.detekt)
   alias(libs.plugins.google.services)
 }
 
@@ -40,27 +38,8 @@ android {
 
 kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_11) } }
 
-detekt {
-  buildUponDefaultConfig = true
-  allRules = false
-  ignoreFailures = false
-  config.setFrom(rootProject.file("config/detekt/detekt.yml"))
-  baseline = file("detekt-baseline.xml")
-  source.setFrom("src/main/kotlin")
-}
-
-tasks.withType<Detekt>().configureEach {
-  jvmTarget = "11"
-  reports {
-    html.required.set(true)
-    sarif.required.set(true)
-    xml.required.set(true)
-    txt.required.set(false)
-  }
-}
-
 dependencies {
-  implementation(projects.composeApp)
+  implementation(project(":composeApp"))
   implementation(libs.ui.tooling)
   implementation(libs.ui.tooling.preview)
   implementation(libs.androidx.activity.compose)

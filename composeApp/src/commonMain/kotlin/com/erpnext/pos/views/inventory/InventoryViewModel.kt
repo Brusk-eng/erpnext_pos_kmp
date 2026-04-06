@@ -33,6 +33,7 @@ class InventoryViewModel(
 
   private val searchFilter = MutableStateFlow("")
   private val categoryFilter = MutableStateFlow("Todos los grupos de artículos")
+  private val refreshNonce = MutableStateFlow(0)
 
   // Exponemos categorías separadas por si la UI la necesita en otro binding
   private val _categoriesFlow = MutableStateFlow<List<CategoryBO>?>(emptyList())
@@ -98,11 +99,15 @@ class InventoryViewModel(
 
         val allowNegativeStock = current.allowNegativeStock
         val itemsFlow: Flow<PagingData<ItemBO>> =
-            combine(searchFilter.debounce(300), categoryFilter.debounce(300)) { query, category ->
-                  query to category
+            combine(
+                    searchFilter.debounce(300),
+                    categoryFilter.debounce(300),
+                    refreshNonce,
+                ) { query, category, refreshTick ->
+                  Triple(query, category, refreshTick)
                 }
-                .debounce(200)
-                .flatMapLatest { (query, category) ->
+                .distinctUntilChanged()
+                .flatMapLatest { (query, category, _) ->
                   fetchInventoryItemUseCase
                       .invoke(query.takeIf { it.isNotBlank() })
                       .flowOn(Dispatchers.IO)
@@ -153,16 +158,7 @@ class InventoryViewModel(
   }
 
   fun refresh() {
-    // Forzamos re-emisión sin alterar valor final (minimiza blink)
-    val q = searchFilter.value
-    val c = categoryFilter.value
-
-    // Emisiones rápidas para forzar flatMapLatest en loadItemsReactive
-    searchFilter.value = "$q "
-    searchFilter.value = q
-
-    // Reaplicar categoría (esto también dispara combine)
-    categoryFilter.value = c
+    refreshNonce.update { it + 1 }
   }
 
   private fun onError(message: String?) {

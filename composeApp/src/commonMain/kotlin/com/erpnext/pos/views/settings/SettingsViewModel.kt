@@ -8,6 +8,8 @@ import androidx.lifecycle.viewModelScope
 import com.erpnext.pos.base.BaseViewModel
 import com.erpnext.pos.localSource.preferences.*
 import com.erpnext.pos.localization.AppLanguage
+import com.erpnext.pos.navigation.NavRoute
+import com.erpnext.pos.navigation.NavigationManager
 import com.erpnext.pos.sync.SyncManager
 import com.erpnext.pos.sync.SyncState
 import com.erpnext.pos.views.CashBoxManager
@@ -27,6 +29,7 @@ class SettingsViewModel(
     private val languagePreferences: LanguagePreferences,
     private val themePreferences: ThemePreferences,
     private val returnPolicyPreferences: ReturnPolicyPreferences,
+    private val navManager: NavigationManager,
 ) : BaseViewModel() {
 
   private val _uiState: MutableStateFlow<POSSettingState> =
@@ -154,5 +157,7 @@ class SettingsViewModel(
     viewModelScope.launch { themePreferences.setThemeMode(mode) }
   }
 
+  fun openPrinters() {
+    navManager.navigateTo(NavRoute.Printers)
+  }
 }
- // 270

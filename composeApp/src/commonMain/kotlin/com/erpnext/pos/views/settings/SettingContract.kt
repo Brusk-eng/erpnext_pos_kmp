@@ -57,4 +57,5 @@ data class POSSettingAction(
     val onLanguageSelected: (AppLanguage) -> Unit = {},
     val onThemeSelected: (AppColorTheme) -> Unit = {},
     val onThemeModeSelected: (AppThemeMode) -> Unit = {},
+    val onOpenPrinters: () -> Unit = {},
 )

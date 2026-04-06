@@ -34,6 +34,7 @@ fun rememberSettingsActions(coordinator: SettingsCoordinator): POSSettingAction 
         onLanguageSelected = coordinator::onLanguageSelected,
         onThemeSelected = coordinator::onThemeSelected,
         onThemeModeSelected = coordinator::onThemeModeSelected,
+        onOpenPrinters = coordinator::openPrinters,
     )
   }
 }

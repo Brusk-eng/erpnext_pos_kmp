@@ -21,12 +21,11 @@ import com.erpnext.pos.remoteSource.dto.BootstrapFullSnapshotDto
 import com.erpnext.pos.remoteSource.dto.BootstrapPosSyncDto
 import com.erpnext.pos.remoteSource.dto.BootstrapRequestDto
 import com.erpnext.pos.remoteSource.dto.PaymentEntryDto
+import com.erpnext.pos.remoteSource.dto.POSProfileDto
 import com.erpnext.pos.remoteSource.mapper.resolveReceivableAccount
 import com.erpnext.pos.remoteSource.mapper.toEntities
 import com.erpnext.pos.remoteSource.mapper.toEntity
 import com.erpnext.pos.utils.AppLogger
-import kotlin.time.Clock
-import kotlin.time.ExperimentalTime
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -38,6 +37,8 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
 @OptIn(ExperimentalTime::class)
 class BootstrapSyncRepository(
@@ -119,23 +120,10 @@ class BootstrapSyncRepository(
         )
     val baseData = api.decodeBootstrapFullSnapshot(baseRaw)
 
-    val selectedProfile =
-        profileName
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?.let { requested ->
-              baseData.posProfiles.firstOrNull {
-                it.profileName.equals(requested, ignoreCase = true)
-              }
-            } ?: baseData.posProfiles.firstOrNull()
+    val selectedProfile = resolveSelectedBootstrapProfile(baseData, profileName)
 
-    val warehouse =
-        baseData.context?.warehouse?.trim()?.takeIf { it.isNotBlank() }
-            ?: selectedProfile?.warehouse?.trim()?.takeIf { it.isNotBlank() }
-    val priceList =
-        baseData.context?.priceListCamel?.trim()?.takeIf { it.isNotBlank() }
-            ?: baseData.context?.priceListSnake?.trim()?.takeIf { it.isNotBlank() }
-            ?: selectedProfile?.sellingPriceList?.trim()?.takeIf { it.isNotBlank() }
+    val warehouse = selectedProfile?.warehouse?.trim()?.takeIf { it.isNotBlank() }
+    val priceList = selectedProfile?.sellingPriceList?.trim()?.takeIf { it.isNotBlank() }
 
     val inventoryRaw =
         if (warehouse.isNullOrBlank()) {
@@ -295,19 +283,6 @@ class BootstrapSyncRepository(
           api.decodeBootstrapFullSnapshot(pageRaw).paymentEntries
         }
 
-    val alertsRaw =
-        api.getBootstrapRawSnapshot(
-            BootstrapRequestDto(
-                includeInventory = false,
-                includeCustomers = false,
-                includeInvoices = false,
-                includeActivity = false,
-                recentPaidOnly = true,
-                profileName = profileName,
-                offset = 0,
-                limit = DEFAULT_PAGE_LIMIT,
-            )
-        )
     val allInventory = inventoryFetch.items
     val allCustomers = customersFetch.items
     val allInvoices = invoicesFetch.items
@@ -727,11 +702,6 @@ class BootstrapSyncRepository(
 
   private suspend fun persistCompany(snapshot: Snapshot) {
     val companies = snapshot.data.resolvedCompanies
-    if (companies.isEmpty()) {
-      companyDao.softDeleteAll()
-      companyDao.hardDeleteAllDeleted()
-      return
-    }
     companies.forEach { company ->
       val companyName =
           company.resolvedCompanyName?.trim()?.takeIf { it.isNotBlank() } ?: return@forEach
@@ -741,18 +711,9 @@ class BootstrapSyncRepository(
               defaultCurrency = company.defaultCurrency ?: "NIO",
               taxId = company.taxId,
               country = company.country,
-              defaultReceivableAccount = company.defaultReceivableAccount,
-              defaultReceivableAccountCurrency = company.defaultReceivableAccountCurrency,
-              isDeleted = false,
           )
       companyDao.insert(entity)
     }
-    val names =
-        companies
-            .mapNotNull { it.resolvedCompanyName?.trim()?.takeIf { name -> name.isNotBlank() } }
-            .distinct()
-    companyDao.hardDeleteDeletedNotIn(names)
-    companyDao.softDeleteNotIn(names)
   }
 
   private suspend fun persistStockSettings(snapshot: Snapshot) {
@@ -876,7 +837,8 @@ class BootstrapSyncRepository(
   }
 
   private suspend fun persistCustomers(snapshot: Snapshot) {
-    val contextCompany = snapshot.data.context?.company?.trim()?.takeIf { it.isNotBlank() }
+    val selectedProfile = resolveSelectedBootstrapProfile(snapshot.data)
+    val profileCompany = selectedProfile?.company?.trim()?.takeIf { it.isNotBlank() }
     val companyFallbackByName =
         snapshot.data.resolvedCompanies
             .mapNotNull { company ->
@@ -886,11 +848,11 @@ class BootstrapSyncRepository(
               name.lowercase() to company
             }
             .toMap()
-    val contextCompanyFallback = contextCompany?.lowercase()?.let { companyFallbackByName[it] }
+    val contextCompanyFallback = profileCompany?.lowercase()?.let { companyFallbackByName[it] }
     val entities =
         snapshot.data.customers.map { dto ->
           val companyCreditLimit = dto.creditLimits.firstOrNull()?.creditLimit
-          val receivable = dto.resolveReceivableAccount(contextCompany)
+          val receivable = dto.resolveReceivableAccount(profileCompany)
           val fallbackReceivable = contextCompanyFallback?.defaultReceivableAccount
           val fallbackReceivableCurrency = contextCompanyFallback?.defaultReceivableAccountCurrency
           dto.toEntity(
@@ -1160,6 +1122,20 @@ class BootstrapSyncRepository(
     val root =
         runCatching { api.json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return null
     return root["profileName"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotBlank() }
+  }
+
+  private fun resolveSelectedBootstrapProfile(
+      snapshot: BootstrapFullSnapshotDto,
+      requestedProfileName: String? = null,
+  ): POSProfileDto? {
+    val requested =
+        requestedProfileName
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: snapshot.context?.profileName?.trim()?.takeIf { it.isNotBlank() }
+    return requested?.let { profileName ->
+      snapshot.posProfiles.firstOrNull { it.profileName.equals(profileName, ignoreCase = true) }
+    } ?: snapshot.posProfiles.firstOrNull()
   }
 
   private suspend fun resolveBootstrapContextOpening(snapshot: Snapshot): String? {

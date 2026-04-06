@@ -18,6 +18,9 @@ import com.erpnext.pos.domain.policy.SalesPostingDecision
 import com.erpnext.pos.domain.policy.SalesPostingPolicy
 import com.erpnext.pos.domain.policy.SalesPostingResolution
 import com.erpnext.pos.domain.policy.SalesPostingType
+import com.erpnext.pos.domain.printing.usecase.PrintReceiptInput
+import com.erpnext.pos.domain.printing.usecase.PrintReceiptUseCase
+import com.erpnext.pos.domain.repositories.printing.IPrinterProfileRepository
 import com.erpnext.pos.domain.usecases.AdjustLocalInventoryInput
 import com.erpnext.pos.domain.usecases.AdjustLocalInventoryUseCase
 import com.erpnext.pos.domain.usecases.BillingProductsQueryInput
@@ -44,11 +47,14 @@ import com.erpnext.pos.localSource.preferences.LanguagePreferences
 import com.erpnext.pos.localization.AppLanguage
 import com.erpnext.pos.navigation.NavRoute
 import com.erpnext.pos.navigation.NavigationManager
+import com.erpnext.pos.printing.templates.ReceiptTemplateMetadata
+import com.erpnext.pos.printing.templates.buildBillingSaleReceipt
 import com.erpnext.pos.remoteSource.dto.SalesInvoiceDto
 import com.erpnext.pos.remoteSource.dto.SalesInvoiceItemDto
 import com.erpnext.pos.remoteSource.dto.SalesInvoicePaymentScheduleDto
 import com.erpnext.pos.remoteSource.sdk.extractReservedStockItemCode
 import com.erpnext.pos.remoteSource.sdk.toUserMessage
+import com.erpnext.pos.utils.AppLogger
 import com.erpnext.pos.utils.NetworkMonitor
 import com.erpnext.pos.utils.buildPaymentModeDetailMap
 import com.erpnext.pos.utils.calculateTotals
@@ -67,8 +73,6 @@ import com.erpnext.pos.views.payment.PaymentHandler
 import com.erpnext.pos.views.salesflow.SalesFlowContext
 import com.erpnext.pos.views.salesflow.SalesFlowContextStore
 import com.erpnext.pos.views.salesflow.SalesFlowSource
-import kotlin.time.Clock
-import kotlin.time.ExperimentalTime
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -77,6 +81,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
 private const val PAID_STATUS_TOLERANCE = 0.01
 
@@ -116,6 +122,8 @@ class BillingViewModel(
     private val languagePreferences: LanguagePreferences,
     private val generalPreferences: GeneralPreferences,
     private val networkMonitor: NetworkMonitor,
+    private val printReceiptUseCase: PrintReceiptUseCase,
+    private val printerProfileRepository: IPrinterProfileRepository,
 ) : BaseViewModel() {
 
   private val _state: MutableStateFlow<BillingState> = MutableStateFlow(BillingState.Loading)
@@ -244,15 +252,7 @@ class BillingViewModel(
             val modeTypes = modeDefinitions.associateBy { it.modeOfPayment }
             paymentModeDetails = buildPaymentModeDetailMap(modeDefinitions)
 
-            val paymentModeCurrencyByMode = buildMap {
-              modeDefinitions.forEach { def ->
-                val currency = def.currency?.trim()?.uppercase().orEmpty()
-                if (currency.isNotBlank()) {
-                  put(def.modeOfPayment, currency)
-                  put(def.name, currency)
-                }
-              }
-            }
+            val paymentModeCurrencyByMode = buildPaymentModeCurrencyMap(modeDefinitions)
 
             val paymentModes =
                 context.paymentModes.ifEmpty {
@@ -585,7 +585,9 @@ class BillingViewModel(
     val desiredQty = (existing?.quantity ?: 0.0) + 1.0
 
     if (desiredQty > maxQty) {
-      _state.update { current.copy(cartErrorMessage = buildQtyErrorMessage(item.name, maxQty)) }
+      _state.update {
+        current.copy(cartErrorMessage = buildQtyErrorMessage(item.name, maxQty, ::tr))
+      }
       return
     }
 
@@ -625,7 +627,9 @@ class BillingViewModel(
 
     if (maxQty != null && newQuantity > maxQty) {
       _state.update {
-        current.copy(cartErrorMessage = buildQtyErrorMessage(cartItem?.name ?: itemCode, maxQty))
+        current.copy(
+            cartErrorMessage = buildQtyErrorMessage(cartItem?.name ?: itemCode, maxQty, ::tr)
+        )
       }
       return
     }
@@ -1078,6 +1082,28 @@ class BillingViewModel(
               productStockByCode[code] = (currentStock - sold).coerceAtLeast(0.0)
             }
 
+            val invoiceLabel = created?.name ?: localInvoiceName
+            val printFeedback =
+                tryPrintBillingReceipt(
+                    invoiceLabel = invoiceLabel,
+                    customerLabel = customer.customerName.ifBlank { customer.name },
+                    currencyCode = invoiceCurrency,
+                    cartItems = currentWithHints.cartItems,
+                    subtotal = totals.subtotal,
+                    taxes = totals.taxes,
+                    total = totals.total,
+                    paidAmount = resolvedPaymentLines.sumOf { it.baseAmount },
+                    balanceDue = (totals.total - resolvedPaymentLines.sumOf { it.baseAmount }).coerceAtLeast(0.0),
+                    companyName = context.company,
+                    cashierName =
+                        context.cashier.fullName
+                            .takeIf { it.isNotBlank() }
+                            ?: context.cashier.username.takeIf { it.isNotBlank() }
+                            ?: context.username,
+                    posProfileId = context.profileName,
+                    logoUrl = context.cashier.image,
+                )
+
             _state.update {
               currentWithHints.copy(
                   selectedCustomer = null,
@@ -1112,14 +1138,14 @@ class BillingViewModel(
                                 spanish =
                                     "Factura $localInvoiceName guardada localmente (pendiente de sincronización).",
                                 english = "Invoice $localInvoiceName saved locally (pending sync).",
-                            )
+                            ) + printFeedback.toMessageSuffix()
                           } else {
                             tr(
                                 spanish =
                                     "Factura $localInvoiceName guardada localmente (pendiente de sincronización). $remoteErrorMessage",
                                 english =
                                     "Invoice $localInvoiceName saved locally (pending sync). $remoteErrorMessage",
-                            )
+                            ) + printFeedback.toMessageSuffix()
                           }
                         }
 
@@ -1129,12 +1155,12 @@ class BillingViewModel(
                             tr(
                                 spanish = "Factura $label creada. Pagos enviados correctamente.",
                                 english = "Invoice $label created. Payments sent successfully.",
-                            )
+                            ) + printFeedback.toMessageSuffix()
                           } else {
                             tr(
                                 spanish = "Factura $label creada. Pagos guardados localmente.",
                                 english = "Invoice $label created. Payments saved locally.",
-                            ) + paymentsSyncWarning
+                            ) + paymentsSyncWarning + printFeedback.toMessageSuffix()
                           }
                         }
 
@@ -1143,7 +1169,7 @@ class BillingViewModel(
                           tr(
                               spanish = "Factura $label creada correctamente.",
                               english = "Invoice $label created successfully.",
-                          )
+                          ) + printFeedback.toMessageSuffix()
                         }
                       },
                   successDialogMessage =
@@ -1187,7 +1213,13 @@ class BillingViewModel(
             _state.update { currentState ->
               val previous =
                   (currentState as? BillingState.Success)?.let { applyReservedItemFilter(it, e) }
-              val errorMessage = buildFinalizeErrorMessage(previous, e)
+              val errorMessage =
+                  buildFinalizeErrorMessage(
+                      current = previous,
+                      error = e,
+                      shouldSuggestRateSync = shouldSuggestRateSync(e),
+                      roundForCurrency = ::roundForCurrency,
+                  )
               BillingState.Error(errorMessage, previous, showSyncRates = shouldSuggestRateSync(e))
             }
           },
@@ -1257,41 +1289,6 @@ class BillingViewModel(
             total = totals.total,
         )
         .recalculatePaymentTotals()
-  }
-
-  private fun buildFinalizeErrorMessage(current: BillingState.Success?, error: Throwable): String {
-    // Mensaje base para el usuario.
-    val baseMessage = error.toUserMessage("No se pudo crear la factura.")
-    // Construimos contexto adicional para identificar el punto del error.
-    val sourceInfo =
-        current?.salesFlowContext?.sourceLabel()?.let { label ->
-          current.salesFlowContext.sourceId?.let { id -> "$label ($id)" } ?: label
-        } ?: "N/A"
-    val customerInfo = current?.selectedCustomer?.name ?: "N/A"
-    val totalInfo = current?.total?.let { roundForCurrency(it, current.currency) } ?: 0.0
-    val paidInfo = current?.paidAmountBase?.let { roundForCurrency(it, current.currency) } ?: 0.0
-    val linesInfo = current?.paymentLines?.size ?: 0
-    val creditInfo = current?.isCreditSale ?: false
-    val errorType = error::class.simpleName ?: "Error"
-    return buildString {
-      append(baseMessage)
-      append(" | Tipo: ").append(errorType)
-      append(" | Cliente: ").append(customerInfo)
-      append(" | Origen: ").append(sourceInfo)
-      append(" | Total: ").append(totalInfo)
-      append(" | Pagado: ").append(paidInfo)
-      append(" | Pagos: ").append(linesInfo)
-      append(" | Crédito: ").append(creditInfo)
-      if (shouldSuggestRateSync(error)) {
-        append(" | Sugerencia: sincroniza tasas de cambio e intenta de nuevo")
-      }
-    }
-  }
-
-  private fun shouldSuggestRateSync(error: Throwable): Boolean {
-    val message = error.message ?: return false
-    return message.contains("tasa de cambio", ignoreCase = true) ||
-        message.contains("exchange rate", ignoreCase = true)
   }
 
   private fun applyReservedItemFilter(
@@ -1401,52 +1398,6 @@ class BillingViewModel(
     return reverse ?: error("No se pudo resolver la tasa de cambio $from -> $to")
   }
 
-  private fun convertSourceDocument(
-      source: com.erpnext.pos.domain.models.SourceDocumentOption,
-      baseCurrency: String,
-      rate: Double,
-  ): com.erpnext.pos.domain.models.SourceDocumentOption {
-    if (rate == 1.0) return source
-    val convertedTotals =
-        source.totals?.let { totals ->
-          totals.copy(
-              netTotal = totals.netTotal?.let { it * rate },
-              grandTotal = totals.grandTotal?.let { it * rate },
-              taxTotal = totals.taxTotal?.let { it * rate },
-              currency = baseCurrency,
-          )
-        }
-    val convertedItems =
-        source.items.map { item -> item.copy(rate = item.rate * rate, amount = item.amount * rate) }
-    return source.copy(items = convertedItems, totals = convertedTotals)
-  }
-
-  private fun resetFromSource(current: BillingState.Success): BillingState.Success {
-    return current.copy(
-        cartItems = emptyList(),
-        subtotal = 0.0,
-        taxes = 0.0,
-        discount = 0.0,
-        discountCode = "",
-        manualDiscountAmount = 0.0,
-        manualDiscountPercent = 0.0,
-        shippingAmount = 0.0,
-        selectedDeliveryCharge = null,
-        total = 0.0,
-        isCreditSale = false,
-        selectedPaymentTerm = null,
-        paymentLines = emptyList(),
-        paidAmountBase = 0.0,
-        balanceDueBase = 0.0,
-        changeDueBase = 0.0,
-        creditSaleTooltipMessage = null,
-        paymentErrorMessage = null,
-        cartErrorMessage = null,
-        sourceDocument = null,
-        isSourceDocumentApplied = false,
-    )
-  }
-
   fun resetSale() {
     val current = requireSuccessState() ?: return
     val reset =
@@ -1466,17 +1417,6 @@ class BillingViewModel(
     productSearchFilter = ""
     productCategoryFilter = "Todos"
     refreshProductsPaging()
-  }
-
-  private fun buildQtyErrorMessage(itemName: String, maxQty: Double): String {
-    return tr(
-        spanish = "Solo hay ${formatQty(maxQty)} disponibles para $itemName.",
-        english = "Only ${formatQty(maxQty)} units are available for $itemName.",
-    )
-  }
-
-  private fun formatQty(value: Double): String {
-    return if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
   }
 
   private fun buildSalesInvoiceDto(input: SalesInvoiceBuildInput): SalesInvoiceDto {
@@ -1509,11 +1449,9 @@ class BillingViewModel(
         else null
     val receivableAccount =
         input.customer.receivableAccount?.takeIf { it.isNotBlank() }
-            ?: input.context.defaultReceivableAccount?.takeIf { it.isNotBlank() }
     val partyAccountCurrency =
         input.customer.partyAccountCurrency?.takeIf { it.isNotBlank() }
             ?: input.customer.receivableAccountCurrency?.takeIf { it.isNotBlank() }
-            ?: input.context.defaultReceivableAccountCurrency?.takeIf { it.isNotBlank() }
             ?: input.context.partyAccountCurrency
 
     return SalesInvoiceDto(
@@ -1560,75 +1498,6 @@ class BillingViewModel(
     )
   }
 
-  private fun buildInvoiceItems(
-      current: BillingState.Success,
-      context: POSContext,
-      invoiceCurrency: String,
-  ): MutableList<SalesInvoiceItemDto> {
-    val source = current.salesFlowContext
-    val sourceId = source?.sourceId
-    val salesOrderId = if (source?.sourceType == SalesFlowSource.SalesOrder) sourceId else null
-    val deliveryNoteId = if (source?.sourceType == SalesFlowSource.DeliveryNote) sourceId else null
-
-    val items =
-        current.cartItems
-            .map { cart ->
-              val rate = roundForCurrency(cart.price, invoiceCurrency)
-              val amount = roundForCurrency(cart.quantity * rate, invoiceCurrency)
-              SalesInvoiceItemDto(
-                  itemCode = cart.itemCode,
-                  itemName = cart.name,
-                  qty = cart.quantity,
-                  rate = rate,
-                  amount = amount,
-                  discountPercentage = null,
-                  warehouse = context.warehouse,
-                  incomeAccount = context.incomeAccount,
-                  salesOrder = salesOrderId,
-                  deliveryNote = deliveryNoteId,
-              )
-            }
-            .toMutableList()
-
-    return items
-  }
-
-  private fun buildInvoiceRemarks(
-      current: BillingState.Success,
-      paymentLines: List<PaymentLine>,
-      shippingAmount: Double,
-      baseCurrency: String,
-  ): String? {
-    return buildList {
-          current.salesFlowContext?.let { context ->
-            val label = context.sourceLabel()
-            if (label != null && context.sourceType != SalesFlowSource.Customer) {
-              val sourceText =
-                  context.sourceId?.let { "Source: $label (ID: $it)" } ?: "Origen: $label"
-              add(sourceText)
-            }
-          }
-          addAll(
-              paymentLines.mapNotNull { line ->
-                if (line.currency.equals(baseCurrency, ignoreCase = true)) null
-                else
-                    "Moneda de pago (${line.modeOfPayment}): ${line.currency}, tipo de cambio: ${line.exchangeRate}"
-              }
-          )
-          addAll(
-              paymentLines.mapNotNull { line ->
-                line.referenceNumber
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { "Referencia (${line.modeOfPayment}): $it" }
-              }
-          )
-          if (current.discountCode.isNotBlank()) add("Código de descuento: ${current.discountCode}")
-          if (shippingAmount > 0.0) add("Envío: $shippingAmount")
-        }
-        .joinToString(separator = "; ")
-        .takeIf { it.isNotBlank() }
-  }
-
   private suspend fun resolveInvoiceConversionRate(
       invoiceCurrency: String,
       companyCurrency: String,
@@ -1668,73 +1537,6 @@ class BillingViewModel(
             ?.takeIf { it > 0.0 }
             ?.let { 1 / it }
     return reverse ?: error("No se pudo resolver tasa $pay -> $inv")
-  }
-
-  private fun resolveItemPriceForInvoiceCurrency(
-      item: ItemBO,
-      invoiceCurrency: String?,
-      rateToInvoice: Double?,
-      posCurrency: String?,
-      exchangeRate: Double?,
-  ): Double {
-    val itemCurrency =
-        item.currency?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
-            ?: normalizeCurrency(posCurrency)
-    val invoice = normalizeCurrency(invoiceCurrency)
-    if (itemCurrency.isBlank() || invoice.isBlank())
-        return roundForCurrency(item.price, invoiceCurrency)
-    if (itemCurrency.equals(invoice, ignoreCase = true)) return item.price
-
-    // Prioridad: tasa directa moneda_item -> moneda_factura (mismo criterio que ERP/local cache).
-    rateToInvoice
-        ?.takeIf { it > 0.0 }
-        ?.let { directRate ->
-          return roundForCurrency(item.price * directRate, invoiceCurrency)
-        }
-
-    // Fallback legado usando tasa del contexto POS; inferimos dirección para evitar inflar montos.
-    val rate =
-        exchangeRate?.takeIf { it > 0.0 } ?: return roundForCurrency(item.price, invoiceCurrency)
-    val pos = normalizeCurrency(posCurrency)
-    if (itemCurrency.equals("USD", true) && invoice.equals(pos, true)) {
-      val converted = if (rate > 1.0) item.price * rate else item.price / rate
-      return roundForCurrency(converted, invoiceCurrency)
-    }
-    if (itemCurrency.equals(pos, true) && invoice.equals("USD", true)) {
-      val converted = if (rate > 1.0) item.price / rate else item.price * rate
-      return roundForCurrency(converted, invoiceCurrency)
-    }
-    return roundForCurrency(item.price, invoiceCurrency)
-  }
-
-  private fun resolveDueDate(
-      isCreditSale: Boolean,
-      postingDate: String,
-      term: PaymentTermBO?,
-  ): String {
-    if (!isCreditSale) return postingDate
-    val resolvedTerm = term ?: error("El término de pago es obligatorio para ventas a crédito.")
-    val withMonths = DateTimeProvider.addMonths(postingDate, resolvedTerm.creditMonths ?: 0)
-    return DateTimeProvider.addDays(withMonths, resolvedTerm.creditDays ?: 0)
-  }
-
-  private fun buildPaymentSchedule(
-      isCreditSale: Boolean,
-      term: PaymentTermBO?,
-      dueDate: String,
-  ): List<SalesInvoicePaymentScheduleDto> {
-    if (!isCreditSale) return emptyList()
-    val resolvedTerm = term ?: error("El término de pago es obligatorio para ventas a crédito.")
-    val portion = resolvedTerm.invoicePortion ?: 0.0
-    if (portion <= 0.0) return emptyList()
-    return listOf(
-        SalesInvoicePaymentScheduleDto(
-            paymentTerm = resolvedTerm.name,
-            invoicePortion = portion,
-            dueDate = dueDate,
-            modeOfPayment = resolvedTerm.modeOfPayment,
-        )
-    )
   }
 
   /*private fun buildPaymentModeDetailMap(
@@ -1826,7 +1628,7 @@ class BillingViewModel(
         )
       }
       if (!allowNegativeStock && item.quantity > available) {
-        return buildQtyErrorMessage(item.name, available)
+        return buildQtyErrorMessage(item.name, available, ::tr)
       }
     }
 
@@ -1902,4 +1704,88 @@ class BillingViewModel(
       is SalesPostingResolution.Blocked -> error(mapPostingBlockToMessage(resolution.reason))
     }
   }
+
+  private suspend fun tryPrintBillingReceipt(
+      invoiceLabel: String,
+      customerLabel: String,
+      currencyCode: String,
+      cartItems: List<CartItem>,
+      subtotal: Double,
+      taxes: Double,
+      total: Double,
+      paidAmount: Double,
+      balanceDue: Double,
+      companyName: String? = null,
+      cashierName: String? = null,
+      posProfileId: String? = null,
+      logoUrl: String? = null,
+  ): String {
+    val printerEnabled = generalPreferences.printerEnabled.first()
+    if (!printerEnabled) return tr("Impresion deshabilitada.", "Printing is disabled.")
+
+    val defaultPrinter = printerProfileRepository.getDefaultProfile()
+    if (defaultPrinter == null) {
+      return tr("No hay impresora predeterminada.", "No default printer is configured.")
+    }
+
+    val itemLines =
+        cartItems.map { item ->
+          val label = "${item.quantity}x ${item.name}".trim()
+          val amount = item.quantity * item.price
+          label to amount
+        }
+
+    val receipt =
+        buildBillingSaleReceipt(
+            invoiceLabel = invoiceLabel,
+            customerLabel = customerLabel,
+            currencyCode = currencyCode,
+            itemLines = itemLines,
+            subtotal = subtotal,
+            taxes = taxes,
+            total = total,
+            paidAmount = paidAmount,
+            balanceDue = balanceDue,
+            language = currentLanguage,
+            metadata =
+                ReceiptTemplateMetadata(
+                    companyName = companyName,
+                    cashierName = cashierName,
+                    customerName = customerLabel,
+                    posProfileId = posProfileId,
+                    logoUrl = logoUrl,
+                ),
+        )
+
+    return runCatching {
+          printReceiptUseCase(
+              PrintReceiptInput(
+                  profileId = defaultPrinter.id,
+                  document = receipt,
+              )
+          ).getOrThrow()
+          tr(
+              "Recibo impreso en ${defaultPrinter.name}.",
+              "Receipt printed on ${defaultPrinter.name}.",
+          )
+        }
+        .getOrElse { error ->
+          AppLogger.warn(
+              "BillingViewModel.tryPrintBillingReceipt failed",
+              error,
+              reportToSentry = false,
+          )
+          tr(
+              "Venta registrada, pero no se pudo imprimir: ${error.message ?: "error desconocido"}.",
+              "Sale saved, but printing failed: ${error.message ?: "unknown error"}.",
+          )
+        }
+  }
+
+  private fun String.toMessageSuffix(): String =
+      if (isBlank()) {
+        ""
+      } else {
+        " $this"
+      }
 }

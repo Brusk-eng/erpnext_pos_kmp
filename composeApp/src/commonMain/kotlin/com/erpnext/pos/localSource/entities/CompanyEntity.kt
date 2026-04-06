@@ -9,7 +9,4 @@ data class CompanyEntity(
     @ColumnInfo(name = "default_currency") var defaultCurrency: String,
     var country: String? = null,
     @ColumnInfo(name = "tax_id") var taxId: String? = null,
-    @ColumnInfo(name = "default_receivable_account") var defaultReceivableAccount: String? = null,
-    @ColumnInfo(name = "default_receivable_account_currency")
-    var defaultReceivableAccountCurrency: String? = null,
 )

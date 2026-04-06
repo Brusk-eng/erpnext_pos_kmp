@@ -59,7 +59,13 @@ data class CommonStrings(
     val databasePending: String,
     val printerConnected: String,
     val printerDisconnected: String,
+    val printerOff: String,
+    val printerPrinting: String,
+    val printerProblem: String,
+    val printerBluetoothOffDialogBody: String,
+    val understood: String,
     val openCashboxToSyncError: String,
+    val baseCompanySyncOnlyNotice: String,
     val cashierFallback: String,
     val collapseSection: String,
     val expandSection: String,
@@ -304,6 +310,7 @@ data class NavigationStrings(
     val invoice: String,
     val billing: String,
     val inventory: String,
+    val printers: String,
 )
 
 data class ReconciliationStrings(
@@ -632,6 +639,7 @@ object AppStringsFactory {
                   expenses = "Gastos",
                   activity = "Notificaciones y Actividad",
                   openCashbox = "Abrir caja",
+                  printers = "Impresoras",
               ),
           reconciliation =
               ReconciliationStrings(
@@ -739,7 +747,15 @@ object AppStringsFactory {
                   databasePending = "Base de datos: Pendiente",
                   printerConnected = "Impresora: Conectada",
                   printerDisconnected = "Impresora: Sin conexión",
+                  printerOff = "Impresora: Bluetooth apagado",
+                  printerPrinting = "Impresora: Imprimiendo",
+                  printerProblem = "Impresora: Con problema",
+                  printerBluetoothOffDialogBody =
+                      "Sin conexión de impresora. Enciende Bluetooth para volver a descubrir e imprimir por impresora Bluetooth.",
+                  understood = "Entendido",
                   openCashboxToSyncError = "No podemos sincronizar sin aperturar caja.",
+                  baseCompanySyncOnlyNotice =
+                      "Sin caja abierta: solo se sincronizará información base de la empresa.",
                   cashierFallback = "Cajero",
                   collapseSection = "Colapsar sección",
                   expandSection = "Expandir sección",
@@ -993,6 +1009,7 @@ object AppStringsFactory {
                   activity = "Activity",
                   expenses = "Expenses",
                   openCashbox = "Open Shift",
+                  printers = "Printers",
               ),
           reconciliation =
               ReconciliationStrings(
@@ -1100,7 +1117,15 @@ object AppStringsFactory {
                   databasePending = "Database: Pending",
                   printerConnected = "Printer: Connected",
                   printerDisconnected = "Printer: Disconnected",
+                  printerOff = "Printer: Bluetooth off",
+                  printerPrinting = "Printer: Printing",
+                  printerProblem = "Printer: Problem",
+                  printerBluetoothOffDialogBody =
+                      "Printer connection unavailable. Turn Bluetooth on to discover and print again using Bluetooth printers.",
+                  understood = "Understood",
                   openCashboxToSyncError = "Cannot sync before opening the cashbox.",
+                  baseCompanySyncOnlyNotice =
+                      "No open cashbox: only base company information will be synchronized.",
                   cashierFallback = "Cashier",
                   collapseSection = "Collapse section",
                   expandSection = "Expand section",

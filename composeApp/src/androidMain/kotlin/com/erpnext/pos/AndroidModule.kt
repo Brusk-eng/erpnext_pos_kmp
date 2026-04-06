@@ -1,14 +1,20 @@
 package com.erpnext.pos
 
+import android.content.Context
 import com.erpnext.pos.auth.AndroidInstanceSwitcher
 import com.erpnext.pos.auth.InstanceSwitcher
 import com.erpnext.pos.data.AppDatabase
 import com.erpnext.pos.data.DatabaseBuilder
+import com.erpnext.pos.domain.printing.ports.PrinterDiscoveryService
+import com.erpnext.pos.domain.printing.ports.PrinterTransportFactory
 import com.erpnext.pos.navigation.AndroidAuthNavigator
 import com.erpnext.pos.navigation.AuthNavigator
+import com.erpnext.pos.printing.AndroidPrinterDiscoveryService
+import com.erpnext.pos.printing.AndroidPrinterTransportFactory
 import com.erpnext.pos.remoteSource.oauth.AuthInfoStore
 import com.erpnext.pos.remoteSource.oauth.TokenStore
 import com.erpnext.pos.remoteSource.oauth.TransientAuthStore
+import com.erpnext.pos.utils.NetworkMonitor
 import com.erpnext.pos.utils.TimeProvider
 import org.koin.dsl.module
 
@@ -18,6 +24,7 @@ val androidModule = module {
   single<TransientAuthStore> { get<TokenStore>() as AndroidTokenStore }
   single<InstanceSwitcher> { AndroidInstanceSwitcher(get()) }
   single<AuthNavigator> { AndroidAuthNavigator() }
+  single { NetworkMonitor(get<Context>()) }
   single { TimeProvider() }
   single { (builder: DatabaseBuilder) -> builder.build() }
   single { get<AppDatabase>().itemDao() }
@@ -44,4 +51,11 @@ val androidModule = module {
   single { get<AppDatabase>().addressDao() }
   single { get<AppDatabase>().supplierDao() }
   single { get<AppDatabase>().companyAccountDao() }
+  single { get<AppDatabase>().printerProfileDao() }
+  single { get<AppDatabase>().printJobDao() }
+
+  //region Printing
+  single<PrinterDiscoveryService> { AndroidPrinterDiscoveryService() }
+  single<PrinterTransportFactory> { AndroidPrinterTransportFactory() }
+  //endregion
 }

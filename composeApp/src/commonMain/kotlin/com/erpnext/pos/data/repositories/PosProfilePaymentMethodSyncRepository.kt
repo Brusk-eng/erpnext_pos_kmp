@@ -50,7 +50,7 @@ class PosProfilePaymentMethodSyncRepository(
     persistSingleProfileWithPayments(bootstrapProfile, now)
     syncModeOfPaymentDetails(
         profiles = listOf(bootstrapProfile),
-        paymentMethods = bootstrapSnapshot.resolvedPaymentMethods,
+        _paymentMethods = bootstrapSnapshot.resolvedPaymentMethods,
         now = now,
         pruneCompanies = true,
     )
@@ -65,7 +65,7 @@ class PosProfilePaymentMethodSyncRepository(
     val local = persistProfilesWithPaymentsSnapshot(bootstrapProfiles, now)
     syncModeOfPaymentDetails(
         profiles = bootstrapProfiles,
-        paymentMethods = snapshot.resolvedPaymentMethods,
+        _paymentMethods = snapshot.resolvedPaymentMethods,
         now = now,
         pruneCompanies = true,
     )
@@ -118,7 +118,7 @@ class PosProfilePaymentMethodSyncRepository(
                     idx = index,
                     isDefault = payment.default,
                     allowInReturns = payment.allowInReturns,
-                    enabledInProfile = payment.enabled,
+                    enabledInProfile = true,
                     lastSyncedAt = now,
                 )
               }
@@ -166,7 +166,7 @@ class PosProfilePaymentMethodSyncRepository(
                   idx = index,
                   isDefault = payment.default,
                   allowInReturns = payment.allowInReturns,
-                  enabledInProfile = payment.enabled,
+                  enabledInProfile = true,
                   lastSyncedAt = now,
               )
             }
@@ -184,44 +184,27 @@ class PosProfilePaymentMethodSyncRepository(
 
   private suspend fun syncModeOfPaymentDetails(
       profiles: List<POSProfileDto>,
-      paymentMethods: List<PaymentModesDto>?,
+      _paymentMethods: List<PaymentModesDto>?,
       now: Long,
       pruneCompanies: Boolean,
   ) {
-    val source =
-        when {
-          !paymentMethods.isNullOrEmpty() -> paymentMethods
-          else ->
-              profiles.flatMap { profile ->
-                profile.payments.map { payment ->
-                  if (payment.company.isNullOrBlank()) {
-                    payment.copy(company = profile.company)
-                  } else {
-                    payment
-                  }
-                }
-              }
-        }
+    val source = profiles.flatMap { profile -> profile.payments.map { profile to it } }
     val resolved =
         source
-            .mapNotNull { payment ->
+            .mapNotNull { (profile, payment) ->
               val modeName = payment.modeOfPayment.trim()
               if (modeName.isBlank()) return@mapNotNull null
-              val company = payment.company?.trim().orEmpty()
+              val company = profile.company.trim()
               if (company.isBlank()) return@mapNotNull null
-              val account =
-                  payment.defaultAccount
-                      ?: payment.account
-                      ?: payment.accounts.firstOrNull { it.company == company }?.defaultAccount
-                      ?: payment.accounts.firstOrNull()?.defaultAccount
-              val currency = payment.accountCurrency ?: payment.currency
-              val type = payment.accountType ?: payment.modeOfPaymentType ?: "Cash"
+              val account = payment.account
+              val currency = payment.currency
+              val type = payment.resolvedType ?: "Cash"
               ModeOfPaymentEntity(
                   name = modeName,
                   modeOfPayment = modeName,
                   company = company,
                   type = type,
-                  enabled = payment.enabled,
+                  enabled = true,
                   currency = currency,
                   account = account,
                   lastSyncedAt = now,

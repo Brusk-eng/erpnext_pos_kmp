@@ -2,6 +2,9 @@ package com.erpnext.pos.views.paymententry
 
 import androidx.lifecycle.viewModelScope
 import com.erpnext.pos.base.BaseViewModel
+import com.erpnext.pos.domain.printing.usecase.PrintReceiptInput
+import com.erpnext.pos.domain.printing.usecase.PrintReceiptUseCase
+import com.erpnext.pos.domain.repositories.printing.IPrinterProfileRepository
 import com.erpnext.pos.domain.usecases.CreateInternalTransferInput
 import com.erpnext.pos.domain.usecases.CreateInternalTransferUseCase
 import com.erpnext.pos.domain.usecases.CreatePaymentOutInput
@@ -14,17 +17,20 @@ import com.erpnext.pos.domain.usecases.RegisterInvoicePaymentInput
 import com.erpnext.pos.domain.usecases.RegisterInvoicePaymentUseCase
 import com.erpnext.pos.domain.utils.UUIDGenerator
 import com.erpnext.pos.localSource.preferences.GeneralPreferences
+import com.erpnext.pos.localSource.preferences.LanguagePreferences
+import com.erpnext.pos.localization.AppLanguage
 import com.erpnext.pos.navigation.NavRoute
 import com.erpnext.pos.navigation.NavigationManager
+import com.erpnext.pos.printing.templates.ReceiptTemplateMetadata
+import com.erpnext.pos.printing.templates.buildPendingInvoicePaymentReceipt
 import com.erpnext.pos.remoteSource.dto.InternalTransferCreateDto
 import com.erpnext.pos.remoteSource.dto.PaymentEntryReferenceCreateDto
 import com.erpnext.pos.remoteSource.dto.PaymentOutCreateDto
+import com.erpnext.pos.utils.AppLogger
 import com.erpnext.pos.utils.NetworkMonitor
 import com.erpnext.pos.utils.view.DateTimeProvider
 import com.erpnext.pos.views.CashBoxManager
 import com.erpnext.pos.views.ShiftAccountScope
-import kotlin.time.Clock
-import kotlin.time.ExperimentalTime
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -32,9 +38,8 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
 @OptIn(ExperimentalTime::class)
 class PaymentEntryViewModel(
@@ -50,22 +55,35 @@ class PaymentEntryViewModel(
     private val createInternalTransferUseCase: CreateInternalTransferUseCase,
     private val networkMonitor: NetworkMonitor,
     private val generalPreferences: GeneralPreferences,
+    private val languagePreferences: LanguagePreferences,
+    private val printReceiptUseCase: PrintReceiptUseCase,
+    private val printerProfileRepository: IPrinterProfileRepository,
 ) : BaseViewModel() {
   private val json = Json { ignoreUnknownKeys = true }
   private val amountDraftByType = mutableMapOf<PaymentEntryType, String>()
+  private val referenceNoDraftByType = mutableMapOf<PaymentEntryType, String>()
   private val referenceDateDraftByType = mutableMapOf<PaymentEntryType, String>()
+  private val autoReferenceDraftByType = mutableMapOf<PaymentEntryType, String>()
 
   private val _state = MutableStateFlow(PaymentEntryState())
   val state: StateFlow<PaymentEntryState> = _state
   private var accountToMode: Map<String, String> = emptyMap()
   private var modeToAccount: Map<String, String> = emptyMap()
   private var modeToCurrency: Map<String, String> = emptyMap()
+  private var currentLanguage: AppLanguage = AppLanguage.Spanish
 
   init {
     resetTypeDrafts()
     _state.update { state -> state.copy(referenceDate = draftReferenceDateFor(state.entryType)) }
     observeOnlinePolicy()
+    observeLanguage()
     loadAccountingDefaults()
+  }
+
+  private fun observeLanguage() {
+    viewModelScope.launch {
+      languagePreferences.language.collect { language -> currentLanguage = language }
+    }
   }
 
   private fun defaultReferenceDate(): String = DateTimeProvider.todayDate()
@@ -73,30 +91,55 @@ class PaymentEntryViewModel(
   private fun resetTypeDrafts() {
     PaymentEntryType.entries.forEach { type ->
       amountDraftByType[type] = ""
+      referenceNoDraftByType[type] = defaultReferenceNo(type)
       referenceDateDraftByType[type] = defaultReferenceDate()
     }
   }
 
   private fun draftAmountFor(type: PaymentEntryType): String = amountDraftByType[type].orEmpty()
 
+  private fun draftReferenceNoFor(type: PaymentEntryType): String =
+      referenceNoDraftByType[type].orEmpty()
+
   private fun draftReferenceDateFor(type: PaymentEntryType): String =
       referenceDateDraftByType[type]?.takeIf { it.isNotBlank() } ?: defaultReferenceDate()
+
+  private fun defaultReferenceNo(type: PaymentEntryType): String {
+    if (type == PaymentEntryType.Receive) return ""
+    val generated = generateAutomaticReference(type)
+    autoReferenceDraftByType[type] = generated
+    return generated
+  }
+
+  private fun syncAutoReferenceFor(type: PaymentEntryType) {
+    if (type == PaymentEntryType.Receive) return
+    val currentReference = draftReferenceNoFor(type)
+    val previousAutoReference = autoReferenceDraftByType[type].orEmpty()
+    if (!shouldReplaceWithAutoReference(currentReference, previousAutoReference)) return
+
+    val generated = generateAutomaticReference(type)
+    autoReferenceDraftByType[type] = generated
+    referenceNoDraftByType[type] = generated
+    if (_state.value.entryType == type) {
+      _state.update { it.copy(referenceNo = generated, referenceNoError = null) }
+    }
+  }
 
   fun resetFormState() {
     val current = _state.value
     resetTypeDrafts()
-    _state.value =
+        _state.value =
         PaymentEntryState(
             entryType = PaymentEntryType.Receive,
             currencyCode = current.currencyCode,
             expenseAccount = current.expenseAccount,
-            defaultReceivableAccount = current.defaultReceivableAccount,
             availableModes = current.availableModes,
             accountOptions = current.accountOptions,
             partyOptions = current.partyOptions,
             supplierPendingInvoices = emptyList(),
             isOnline = current.isOnline,
             offlineModeEnabled = current.offlineModeEnabled,
+            referenceNo = draftReferenceNoFor(PaymentEntryType.Receive),
             referenceDate = draftReferenceDateFor(PaymentEntryType.Receive),
         )
   }
@@ -169,7 +212,6 @@ class PaymentEntryViewModel(
             it.copy(
                 currencyCode = context?.currency ?: "USD",
                 expenseAccount = context?.expenseAccount.orEmpty(),
-                defaultReceivableAccount = context?.defaultReceivableAccount.orEmpty(),
                 availableModes = modes,
                 accountOptions = accountOptions,
                 partyOptions = parties,
@@ -186,6 +228,7 @@ class PaymentEntryViewModel(
       it.copy(
           entryType = entryType,
           amount = draftAmountFor(entryType),
+          referenceNo = draftReferenceNoFor(entryType),
           referenceDate = draftReferenceDateFor(entryType),
           invoiceId = if (entryType == PaymentEntryType.Receive) it.invoiceId else "",
           sourceAccount =
@@ -232,6 +275,7 @@ class PaymentEntryViewModel(
           supplierInvoicesError = null,
       )
     }
+    syncAutoReferenceFor(_state.value.entryType)
     val current = _state.value
     if (current.entryType == PaymentEntryType.Pay && current.supplierPendingInvoices.isNotEmpty()) {
       refreshSupplierInvoiceConversions(
@@ -249,18 +293,34 @@ class PaymentEntryViewModel(
   fun onSourceAccountChanged(value: String) {
     val normalized = value.trim()
     val inferredMode = accountToMode[normalized].orEmpty()
+    val inferredCurrency = modeToCurrency[inferredMode]?.takeIf { it.isNotBlank() }
     if (_state.value.entryType == PaymentEntryType.Pay && inferredMode.isNotBlank()) {
       onModeOfPaymentChanged(inferredMode)
       _state.update { state ->
-        state.copy(sourceAccount = value, modeOfPayment = inferredMode, errorMessage = null)
+        state.copy(
+            sourceAccount = value,
+            modeOfPayment = inferredMode,
+            currencyCode = inferredCurrency ?: state.currencyCode,
+            errorMessage = null,
+        )
+      }
+    } else if (_state.value.entryType == PaymentEntryType.InternalTransfer) {
+      _state.update { state ->
+        state.copy(
+            sourceAccount = value,
+            currencyCode = inferredCurrency ?: state.currencyCode,
+            errorMessage = null,
+        )
       }
     } else {
       _state.update { it.copy(sourceAccount = value, errorMessage = null) }
     }
+    syncAutoReferenceFor(_state.value.entryType)
   }
 
   fun onTargetAccountChanged(value: String) {
-    _state.update { it.copy(targetAccount = value) }
+    _state.update { it.copy(targetAccount = value, errorMessage = null) }
+    syncAutoReferenceFor(_state.value.entryType)
   }
 
   fun onAmountChanged(value: String) {
@@ -311,6 +371,7 @@ class PaymentEntryViewModel(
   }
 
   fun onReferenceNoChanged(value: String) {
+    referenceNoDraftByType[_state.value.entryType] = value
     _state.update { it.copy(referenceNo = value, referenceNoError = null, errorMessage = null) }
   }
 
@@ -508,6 +569,7 @@ class PaymentEntryViewModel(
     executeUseCase(
         action = {
           val narration = buildNarration(current)
+          var receivePrintFeedback: String? = null
           when (current.entryType) {
             PaymentEntryType.Receive -> {
               if (current.invoiceId.isNotBlank()) {
@@ -518,6 +580,17 @@ class PaymentEntryViewModel(
                         amount = amount,
                     )
                 )
+                receivePrintFeedback =
+                    tryPrintPendingInvoicePaymentReceipt(
+                        invoiceId = current.invoiceId,
+                        amount = amount,
+                        currencyCode = current.currencyCode,
+                        modeOfPayment = sourceMode,
+                        referenceNo = current.referenceNo,
+                        notes = current.notes,
+                        customerName = current.party.takeIf { it.isNotBlank() },
+                        pendingAfterPayment = null,
+                    )
               } else {
                 cashBoxManager.registerCashMovement(
                     modeOfPayment = sourceMode,
@@ -561,6 +634,13 @@ class PaymentEntryViewModel(
                     ) ?: error("No se pudo obtener tipo de cambio $fromCurrency -> $toCurrency.")
                   }
               val receivedAmount = amount * rate
+              val resolvedReferenceNo =
+                  current.referenceNo.trim().ifBlank {
+                    generateAutomaticReference(current.entryType).also { generated ->
+                      referenceNoDraftByType[current.entryType] = generated
+                      autoReferenceDraftByType[current.entryType] = generated
+                    }
+                  }
               val payload =
                   PaymentOutCreateDto(
                       paymentType = "Pay",
@@ -584,7 +664,7 @@ class PaymentEntryViewModel(
                                 allocatedAmount = invoice.allocatedAmountInvoiceCurrency,
                             )
                           },
-                      referenceNo = current.referenceNo.trim().takeIf { it.isNotBlank() },
+                      referenceNo = resolvedReferenceNo,
                       referenceDate = current.referenceDate.trim().takeIf { it.isNotBlank() },
                   )
               val requestId = UUIDGenerator().newId()
@@ -631,7 +711,10 @@ class PaymentEntryViewModel(
               val receivedAmount = amount * rate
               val referenceNo =
                   current.referenceNo.trim().takeIf { it.isNotBlank() }
-                      ?: "TR-${Clock.System.now().toEpochMilliseconds()}"
+                      ?: generateAutomaticReference(current.entryType).also { generated ->
+                        referenceNoDraftByType[current.entryType] = generated
+                        autoReferenceDraftByType[current.entryType] = generated
+                      }
               val requestId = UUIDGenerator().newId()
               createInternalTransferUseCase(
                   CreateInternalTransferInput(
@@ -663,6 +746,15 @@ class PaymentEntryViewModel(
             }
           }
           _state.update {
+            val nextReferenceNo =
+                if (current.entryType == PaymentEntryType.Receive) {
+                  ""
+                } else {
+                  generateAutomaticReference(current.entryType).also { generated ->
+                    referenceNoDraftByType[current.entryType] = generated
+                    autoReferenceDraftByType[current.entryType] = generated
+                  }
+                }
             val successText =
                 when (current.entryType) {
                   PaymentEntryType.InternalTransfer ->
@@ -687,7 +779,14 @@ class PaymentEntryViewModel(
 
                   PaymentEntryType.Receive ->
                       if (current.invoiceId.isNotBlank()) {
-                        "Cobro registrado para factura ${current.invoiceId}."
+                        buildString {
+                          append("Cobro registrado para factura ${current.invoiceId}.")
+                          val feedback = receivePrintFeedback?.trim().orEmpty()
+                          if (feedback.isNotBlank()) {
+                            append(" ")
+                            append(feedback)
+                          }
+                        }
                       } else {
                         "Entrada registrada por $amount en $sourceMode."
                       }
@@ -705,7 +804,7 @@ class PaymentEntryViewModel(
                     else it.supplierPendingInvoices,
                 supplierInvoicesLoading = false,
                 supplierInvoicesError = null,
-                referenceNo = "",
+                referenceNo = nextReferenceNo,
                 referenceDate = DateTimeProvider.todayDate(),
                 referenceNoError = null,
                 referenceDateError = null,
@@ -714,6 +813,7 @@ class PaymentEntryViewModel(
             )
           }
           amountDraftByType[current.entryType] = ""
+          referenceNoDraftByType[current.entryType] = _state.value.referenceNo
           referenceDateDraftByType[current.entryType] = DateTimeProvider.todayDate()
         },
         exceptionHandler = { throwable ->
@@ -730,7 +830,7 @@ class PaymentEntryViewModel(
                         "No se pudo registrar la entrada."
                       }
                 }
-            val fieldErrors = resolveFieldErrors(throwable.message)
+            val fieldErrors = resolveFieldErrors(json, throwable.message)
             it.copy(
                 isSubmitting = false,
                 referenceNoError = fieldErrors.referenceNoError,
@@ -752,14 +852,70 @@ class PaymentEntryViewModel(
     )
   }
 
-  private fun buildNarration(state: PaymentEntryState): String {
-    val segments = buildList {
-      state.concept.trim().takeIf { it.isNotBlank() }?.let { add("Concepto: $it") }
-      state.party.trim().takeIf { it.isNotBlank() }?.let { add("Tercero: $it") }
-      state.referenceNo.trim().takeIf { it.isNotBlank() }?.let { add("Ref: $it") }
-      state.notes.trim().takeIf { it.isNotBlank() }?.let { add("Nota: $it") }
+  private suspend fun tryPrintPendingInvoicePaymentReceipt(
+      invoiceId: String,
+      amount: Double,
+      currencyCode: String,
+      modeOfPayment: String,
+      referenceNo: String?,
+      notes: String?,
+      customerName: String? = null,
+      pendingAfterPayment: Double? = null,
+  ): String {
+    val printerEnabled = generalPreferences.printerEnabled.firstOrNull() ?: true
+    if (!printerEnabled) return "Impresion deshabilitada en Configuraciones."
+
+    val defaultPrinter = printerProfileRepository.getDefaultProfile()
+    if (defaultPrinter == null) {
+      return "No hay impresora predeterminada configurada."
     }
-    return segments.joinToString(" | ")
+
+    val context = cashBoxManager.getContext() ?: cashBoxManager.initializeContext()
+    val cashierName =
+        context?.cashier?.fullName?.takeIf { it.isNotBlank() }
+            ?: context?.cashier?.username?.takeIf { it.isNotBlank() }
+            ?: context?.username
+    val profileId = context?.profileName
+    val companyName = context?.company
+    val logoUrl = context?.cashier?.image
+
+    val receipt =
+        buildPendingInvoicePaymentReceipt(
+            invoiceId = invoiceId,
+            amount = amount,
+            currencyCode = currencyCode,
+            modeOfPayment = modeOfPayment,
+            referenceNo = referenceNo,
+            notes = notes,
+            pendingAfterPayment = pendingAfterPayment,
+            language = currentLanguage,
+            metadata =
+                ReceiptTemplateMetadata(
+                    companyName = companyName,
+                    cashierName = cashierName,
+                    customerName = customerName,
+                    posProfileId = profileId,
+                    logoUrl = logoUrl,
+                ),
+        )
+
+    return runCatching {
+          printReceiptUseCase(
+              PrintReceiptInput(
+                  profileId = defaultPrinter.id,
+                  document = receipt,
+              )
+          ).getOrThrow()
+          "Comprobante impreso en ${defaultPrinter.name}."
+        }
+        .getOrElse { error ->
+          AppLogger.warn(
+              "PaymentEntryViewModel.tryPrintPendingInvoicePaymentReceipt failed",
+              error,
+              reportToSentry = false,
+          )
+          "Cobro guardado, pero no se pudo imprimir: ${error.message ?: "error desconocido"}."
+        }
   }
 
   private fun loadSupplierOutstandingInvoices(party: String) {
@@ -825,35 +981,6 @@ class PaymentEntryViewModel(
         },
         showLoading = false,
     )
-  }
-
-  private fun reallocateSupplierInvoices(
-      invoices: List<SupplierPendingInvoiceUi>,
-      amountText: String,
-  ): List<SupplierPendingInvoiceUi> {
-    var remaining = amountText.trim().toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
-    return invoices.map { row ->
-      if (!row.selected) {
-        row.copy(allocatedAmountPaymentCurrency = 0.0, allocatedAmountInvoiceCurrency = 0.0)
-      } else if (row.conversionError) {
-        row.copy(allocatedAmountPaymentCurrency = 0.0, allocatedAmountInvoiceCurrency = 0.0)
-      } else {
-        val rate = row.paymentToInvoiceRate ?: 1.0
-        val maxPaymentAmount =
-            row.outstandingAmountPaymentCurrency
-                ?: if (rate > 0.0) row.outstandingAmountInvoiceCurrency / rate else 0.0
-        val allocatedPayment = minOf(remaining, maxPaymentAmount.coerceAtLeast(0.0))
-        val allocatedInvoice =
-            (allocatedPayment * rate).coerceAtMost(
-                row.outstandingAmountInvoiceCurrency.coerceAtLeast(0.0)
-            )
-        remaining = (remaining - allocatedPayment).coerceAtLeast(0.0)
-        row.copy(
-            allocatedAmountPaymentCurrency = roundMoney(allocatedPayment),
-            allocatedAmountInvoiceCurrency = roundMoney(allocatedInvoice),
-        )
-      }
-    }
   }
 
   private fun refreshSupplierInvoiceConversions(
@@ -944,71 +1071,6 @@ class PaymentEntryViewModel(
             allowNetwork = true,
         )
     return reverse?.takeIf { it > 0.0 }?.let { 1.0 / it }
-  }
-
-  private fun roundMoney(value: Double): Double = kotlin.math.round(value * 100.0) / 100.0
-
-  private fun resolveOutstandingInPaymentCurrency(row: SupplierPendingInvoiceUi): Double {
-    val paymentOutstanding = row.outstandingAmountPaymentCurrency
-    if (paymentOutstanding != null) return paymentOutstanding.coerceAtLeast(0.0)
-
-    val rate = row.paymentToInvoiceRate
-    if (rate != null && rate > 0.0) {
-      return (row.outstandingAmountInvoiceCurrency / rate).coerceAtLeast(0.0)
-    }
-    return row.outstandingAmountInvoiceCurrency.coerceAtLeast(0.0)
-  }
-
-  private fun isSupplierInvoiceClosed(status: String?): Boolean {
-    val normalized = status?.trim()?.lowercase().orEmpty()
-    if (normalized.isBlank()) return false
-    return normalized == "paid" || normalized == "cancelled" || normalized == "canceled"
-  }
-
-  private data class PaymentEntryFieldErrors(
-      val referenceNoError: String? = null,
-      val referenceDateError: String? = null,
-      val userMessage: String? = null,
-  )
-
-  private fun resolveFieldErrors(rawMessage: String?): PaymentEntryFieldErrors {
-    val text = rawMessage?.trim().orEmpty()
-    if (text.isBlank()) return PaymentEntryFieldErrors()
-
-    val extractedMessage =
-        runCatching {
-              val root = json.parseToJsonElement(text).jsonObject
-              root["message"]
-                  ?.jsonObject
-                  ?.get("error")
-                  ?.jsonObject
-                  ?.get("message")
-                  ?.jsonPrimitive
-                  ?.contentOrNull
-            }
-            .getOrNull()
-            ?.trim()
-            .orEmpty()
-
-    val effective = extractedMessage.ifBlank { text }
-    val normalized = effective.lowercase()
-    val mentionsReferenceNo =
-        normalized.contains("nro de referencia") || normalized.contains("numero de referencia")
-    val mentionsReferenceDate = normalized.contains("fecha de referencia")
-
-    if (!mentionsReferenceNo && !mentionsReferenceDate) {
-      return PaymentEntryFieldErrors(userMessage = extractedMessage.ifBlank { null })
-    }
-
-    return PaymentEntryFieldErrors(
-        referenceNoError =
-            if (mentionsReferenceNo) "Número de referencia requerido para transacción bancaria."
-            else null,
-        referenceDateError =
-            if (mentionsReferenceDate) "Fecha de referencia requerida para transacción bancaria."
-            else null,
-        userMessage = extractedMessage.ifBlank { effective },
-    )
   }
 
   fun onBack() {

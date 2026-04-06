@@ -9,7 +9,4 @@ data class CompanyDto(
     @SerialName("default_currency") val defaultCurrency: String,
     @SerialName("tax_id") val taxId: String? = null,
     @SerialName("country") val country: String? = null,
-    @SerialName("default_receivable_account") val defaultReceivableAccount: String? = null,
-    @SerialName("default_receivable_account_currency")
-    val defaultReceivableAccountCurrency: String? = null,
 )

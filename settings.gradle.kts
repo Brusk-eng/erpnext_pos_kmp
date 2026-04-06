@@ -1,7 +1,5 @@
 rootProject.name = "ERPNextPOS"
 
-enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
-
 pluginManagement {
   repositories {
     google {
