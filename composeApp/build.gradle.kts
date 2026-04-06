@@ -1,10 +1,12 @@
+@file:Suppress("DEPRECATION")
+
 import com.codingfeline.buildkonfig.compiler.FieldSpec.Type.STRING
-import java.io.FileInputStream
-import java.util.Properties
-import dev.detekt.gradle.Detekt
+import io.gitlab.arturbosch.detekt.Detekt
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.io.FileInputStream
+import java.util.Properties
 
 val properties = Properties()
 
@@ -99,13 +101,13 @@ kotlin {
 
       implementation(libs.androidx.paging.compose)
 
-      implementation(libs.compose.runtime)
-      implementation(libs.compose.foundation)
-      implementation(libs.compose.material3.common)
-      implementation(libs.compose.ui)
-      implementation(libs.compose.components.resources)
-      implementation(libs.compose.components.ui.tooling.preview)
-      implementation(libs.compose.material.icons.extended)
+      implementation(compose.runtime)
+      implementation(compose.foundation)
+      implementation(compose.material3)
+      implementation(compose.ui)
+      implementation(compose.components.resources)
+      implementation(compose.components.uiToolingPreview)
+      implementation(compose.materialIconsExtended)
 
       implementation(libs.androidx.datastore)
       implementation(libs.androidx.datastore.preferences)
@@ -142,7 +144,6 @@ kotlin {
       implementation(libs.androidx.ui.tooling)
       implementation(libs.androidx.ui.tooling.preview)
       implementation(libs.sqldelight.android)
-      implementation(libs.compose.ui.tooling.preview)
       implementation(libs.androidx.activity.compose)
 
       implementation(libs.kotlinx.coroutines.core)
@@ -281,11 +282,11 @@ detekt {
 }
 
 tasks.withType<Detekt>().configureEach {
-  jvmTarget.set("11")
+  jvmTarget = "11"
   reports {
-    checkstyle.required.set(true)
+    xml.required.set(true)
     html.required.set(true)
     sarif.required.set(true)
-    markdown.required.set(false)
+    md.required.set(false)
   }
 }
